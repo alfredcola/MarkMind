@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>877004257056-fnm5ishg8acbk9avlqsvjkc4cferh0vu.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.877004257056-fnm5ishg8acbk9avlqsvjkc4cferh0vu</string>
+	<key>API_KEY</key>
+	<string>AIzaSyBqDdS3DIL5OY9YoIUJOOldY4jPMpQLdRQ</string>
+	<key>GCM_SENDER_ID</key>
+	<string>877004257056</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>alfred.Markdown-Opener</string>
+	<key>PROJECT_ID</key>
+	<string>markmind</string>
+	<key>STORAGE_BUCKET</key>
+	<string>markmind.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:877004257056:ios:33c6634d9be6fd99154945</string>
+	<key>ADMOB_APP_ID</key>
+	<string>ca-app-pub-2445337445676652~8858056467</string>
+</dict>
+</plist>

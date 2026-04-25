@@ -1,0 +1,789 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BB0E24902F9D466D00BE0095 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = BB0E248F2F9D466D00BE0095 /* Markdown */; };
+		BB0E24932F9D4B7E00BE0095 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = BB0E24922F9D4B7E00BE0095 /* Markdown */; };
+		BB0E24952F9D4DD900BE0095 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = BB0E24942F9D4DD900BE0095 /* Markdown */; };
+		BB1B0B672EE55B2B00005683 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B662EE55B2B00005683 /* MLXUtilsLibrary */; };
+		BB1B0B6A2EE55B3500005683 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B692EE55B3500005683 /* MisakiSwift */; };
+		BB1B0B6D2EE55B4600005683 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B6C2EE55B4600005683 /* MLX */; };
+		BB1B0B702EE55B5800005683 /* KokoroSwift in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B6F2EE55B5800005683 /* KokoroSwift */; };
+		BB1B0B712EE55B6600005683 /* KokoroSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B6F2EE55B5800005683 /* KokoroSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		BB1B0B722EE55B6700005683 /* MisakiSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B692EE55B3500005683 /* MisakiSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		BB4799AB2EFFF99B000E1899 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799AA2EFFF99B000E1899 /* GoogleSignIn */; };
+		BB4799AE2EFFFAA6000E1899 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799AD2EFFFAA6000E1899 /* FirebaseAuth */; };
+		BB4799B02EFFFAA6000E1899 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799AF2EFFFAA6000E1899 /* FirebaseFirestore */; };
+		BB4799B22EFFFBD7000E1899 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799B12EFFFBD7000E1899 /* GoogleSignInSwift */; };
+		BB4799B42EFFFC5C000E1899 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799B32EFFFC5C000E1899 /* FirebaseCore */; };
+		BB4799C12F003E76000E1899 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB4799C02F003E76000E1899 /* StoreKit.framework */; };
+		BBAA38052EC066C200ABE343 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = BBAA38042EC066C200ABE343 /* ZIPFoundation */; };
+		BBAA38212EC07F0E00ABE343 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = BBAA38202EC07F0E00ABE343 /* GoogleMobileAds */; };
+		BBC569182EF7BCAB00AB39DC /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBC569172EF7BCAB00AB39DC /* WidgetKit.framework */; };
+		BBC5691A2EF7BCAB00AB39DC /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBC569192EF7BCAB00AB39DC /* SwiftUI.framework */; };
+		BBC5692B2EF7BCAD00AB39DC /* FlashcardWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BBC569152EF7BCAB00AB39DC /* FlashcardWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BBC569292EF7BCAD00AB39DC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BBB26CDE2EBF1C7F00B91D13 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BBC569142EF7BCAB00AB39DC;
+			remoteInfo = FlashcardWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BB73558B2EE406A0006517B4 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				BB1B0B722EE55B6700005683 /* MisakiSwift in Embed Frameworks */,
+				BB1B0B712EE55B6600005683 /* KokoroSwift in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBC569302EF7BCAD00AB39DC /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BBC5692B2EF7BCAD00AB39DC /* FlashcardWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		BB4799C02F003E76000E1899 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
+		BBB26CE62EBF1C7F00B91D13 /* Markdown Opener.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Markdown Opener.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBC569152EF7BCAB00AB39DC /* FlashcardWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FlashcardWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBC569172EF7BCAB00AB39DC /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		BBC569192EF7BCAB00AB39DC /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		BBC569512EF7BFD500AB39DC /* FlashcardWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FlashcardWidgetExtension.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BBC5692C2EF7BCAD00AB39DC /* Exceptions for "FlashcardWidget" folder in "FlashcardWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BBC569142EF7BCAB00AB39DC /* FlashcardWidgetExtension */;
+		};
+		BBC5694F2EF7BF0500AB39DC /* Exceptions for "Markdown Opener" folder in "FlashcardWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Mardown Opener/MarkdownModel.swift",
+				"Mardown Opener/SharedContainer.swift",
+			);
+			target = BBC569142EF7BCAB00AB39DC /* FlashcardWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		BB08AFC02EE82C8E00D4B816 /* Resources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		BBB26CE82EBF1C7F00B91D13 /* Markdown Opener */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BBC5694F2EF7BF0500AB39DC /* Exceptions for "Markdown Opener" folder in "FlashcardWidgetExtension" target */,
+			);
+			path = "Markdown Opener";
+			sourceTree = "<group>";
+		};
+		BBC5691B2EF7BCAB00AB39DC /* FlashcardWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BBC5692C2EF7BCAD00AB39DC /* Exceptions for "FlashcardWidget" folder in "FlashcardWidgetExtension" target */,
+			);
+			path = FlashcardWidget;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BBB26CE32EBF1C7F00B91D13 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BBAA38212EC07F0E00ABE343 /* GoogleMobileAds in Frameworks */,
+				BB1B0B672EE55B2B00005683 /* MLXUtilsLibrary in Frameworks */,
+				BB4799B42EFFFC5C000E1899 /* FirebaseCore in Frameworks */,
+				BB0E24932F9D4B7E00BE0095 /* Markdown in Frameworks */,
+				BB4799C12F003E76000E1899 /* StoreKit.framework in Frameworks */,
+				BB1B0B6A2EE55B3500005683 /* MisakiSwift in Frameworks */,
+				BB1B0B702EE55B5800005683 /* KokoroSwift in Frameworks */,
+				BB1B0B6D2EE55B4600005683 /* MLX in Frameworks */,
+				BB4799B22EFFFBD7000E1899 /* GoogleSignInSwift in Frameworks */,
+				BB0E24902F9D466D00BE0095 /* Markdown in Frameworks */,
+				BB4799B02EFFFAA6000E1899 /* FirebaseFirestore in Frameworks */,
+				BBAA38052EC066C200ABE343 /* ZIPFoundation in Frameworks */,
+				BB4799AB2EFFF99B000E1899 /* GoogleSignIn in Frameworks */,
+				BB4799AE2EFFFAA6000E1899 /* FirebaseAuth in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBC569122EF7BCAB00AB39DC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0E24952F9D4DD900BE0095 /* Markdown in Frameworks */,
+				BBC5691A2EF7BCAB00AB39DC /* SwiftUI.framework in Frameworks */,
+				BBC569182EF7BCAB00AB39DC /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		BBB26CDD2EBF1C7F00B91D13 = {
+			isa = PBXGroup;
+			children = (
+				BBC569512EF7BFD500AB39DC /* FlashcardWidgetExtension.entitlements */,
+				BB08AFC02EE82C8E00D4B816 /* Resources */,
+				BBB26CE82EBF1C7F00B91D13 /* Markdown Opener */,
+				BBC5691B2EF7BCAB00AB39DC /* FlashcardWidget */,
+				BBC569162EF7BCAB00AB39DC /* Frameworks */,
+				BBB26CE72EBF1C7F00B91D13 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BBB26CE72EBF1C7F00B91D13 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BBB26CE62EBF1C7F00B91D13 /* Markdown Opener.app */,
+				BBC569152EF7BCAB00AB39DC /* FlashcardWidgetExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BBC569162EF7BCAB00AB39DC /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BB4799C02F003E76000E1899 /* StoreKit.framework */,
+				BBC569172EF7BCAB00AB39DC /* WidgetKit.framework */,
+				BBC569192EF7BCAB00AB39DC /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BBB26CE52EBF1C7F00B91D13 /* Markdown Opener */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BBB26CF12EBF1C8000B91D13 /* Build configuration list for PBXNativeTarget "Markdown Opener" */;
+			buildPhases = (
+				BBB26CE22EBF1C7F00B91D13 /* Sources */,
+				BBB26CE32EBF1C7F00B91D13 /* Frameworks */,
+				BBB26CE42EBF1C7F00B91D13 /* Resources */,
+				BB73558B2EE406A0006517B4 /* Embed Frameworks */,
+				BBC569302EF7BCAD00AB39DC /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BBC5692A2EF7BCAD00AB39DC /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BB08AFC02EE82C8E00D4B816 /* Resources */,
+				BBB26CE82EBF1C7F00B91D13 /* Markdown Opener */,
+			);
+			name = "Markdown Opener";
+			packageProductDependencies = (
+				BBAA38042EC066C200ABE343 /* ZIPFoundation */,
+				BBAA38202EC07F0E00ABE343 /* GoogleMobileAds */,
+				BB1B0B662EE55B2B00005683 /* MLXUtilsLibrary */,
+				BB1B0B692EE55B3500005683 /* MisakiSwift */,
+				BB1B0B6C2EE55B4600005683 /* MLX */,
+				BB1B0B6F2EE55B5800005683 /* KokoroSwift */,
+				BB4799AA2EFFF99B000E1899 /* GoogleSignIn */,
+				BB4799AD2EFFFAA6000E1899 /* FirebaseAuth */,
+				BB4799AF2EFFFAA6000E1899 /* FirebaseFirestore */,
+				BB4799B12EFFFBD7000E1899 /* GoogleSignInSwift */,
+				BB4799B32EFFFC5C000E1899 /* FirebaseCore */,
+				BB0E248F2F9D466D00BE0095 /* Markdown */,
+				BB0E24922F9D4B7E00BE0095 /* Markdown */,
+			);
+			productName = "Markdown Opener";
+			productReference = BBB26CE62EBF1C7F00B91D13 /* Markdown Opener.app */;
+			productType = "com.apple.product-type.application";
+		};
+		BBC569142EF7BCAB00AB39DC /* FlashcardWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BBC5692D2EF7BCAD00AB39DC /* Build configuration list for PBXNativeTarget "FlashcardWidgetExtension" */;
+			buildPhases = (
+				BBC569112EF7BCAB00AB39DC /* Sources */,
+				BBC569122EF7BCAB00AB39DC /* Frameworks */,
+				BBC569132EF7BCAB00AB39DC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BBC5691B2EF7BCAB00AB39DC /* FlashcardWidget */,
+			);
+			name = FlashcardWidgetExtension;
+			packageProductDependencies = (
+				BB0E24942F9D4DD900BE0095 /* Markdown */,
+			);
+			productName = FlashcardWidgetExtension;
+			productReference = BBC569152EF7BCAB00AB39DC /* FlashcardWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BBB26CDE2EBF1C7F00B91D13 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					BBB26CE52EBF1C7F00B91D13 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					BBC569142EF7BCAB00AB39DC = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = BBB26CE12EBF1C7F00B91D13 /* Build configuration list for PBXProject "Markdown Opener" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = BBB26CDD2EBF1C7F00B91D13;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BBAA38032EC066C200ABE343 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+				BBAA381F2EC07F0E00ABE343 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */,
+				BB1B0B652EE55B2B00005683 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */,
+				BB1B0B682EE55B3500005683 /* XCRemoteSwiftPackageReference "MisakiSwift" */,
+				BB1B0B6B2EE55B4600005683 /* XCRemoteSwiftPackageReference "mlx-swift" */,
+				BB1B0B6E2EE55B5800005683 /* XCRemoteSwiftPackageReference "kokoro-ios" */,
+				BB4799A92EFFF99B000E1899 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				BB0E24912F9D4B7E00BE0095 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BBB26CE72EBF1C7F00B91D13 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BBB26CE52EBF1C7F00B91D13 /* Markdown Opener */,
+				BBC569142EF7BCAB00AB39DC /* FlashcardWidgetExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BBB26CE42EBF1C7F00B91D13 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBC569132EF7BCAB00AB39DC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BBB26CE22EBF1C7F00B91D13 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBC569112EF7BCAB00AB39DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BBC5692A2EF7BCAD00AB39DC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BBC569142EF7BCAB00AB39DC /* FlashcardWidgetExtension */;
+			targetProxy = BBC569292EF7BCAD00AB39DC /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		BBB26CEF2EBF1C8000B91D13 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 8RT4D7HHS5;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		BBB26CF02EBF1C8000B91D13 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 8RT4D7HHS5;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		BBB26CF22EBF1C8000B91D13 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Markdown Opener/Markdown Opener.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8RT4D7HHS5;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Markdown-Opener-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = MarkMind;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = "alfred.Markdown-Opener";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BBB26CF32EBF1C8000B91D13 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Markdown Opener/Markdown Opener.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8RT4D7HHS5;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Markdown-Opener-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = MarkMind;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = "alfred.Markdown-Opener";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BBC5692E2EF7BCAD00AB39DC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FlashcardWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8RT4D7HHS5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FlashcardWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FlashcardWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "alfred.Markdown-Opener.FlashcardWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BBC5692F2EF7BCAD00AB39DC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FlashcardWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8RT4D7HHS5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FlashcardWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FlashcardWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "alfred.Markdown-Opener.FlashcardWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BBB26CE12EBF1C7F00B91D13 /* Build configuration list for PBXProject "Markdown Opener" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBB26CEF2EBF1C8000B91D13 /* Debug */,
+				BBB26CF02EBF1C8000B91D13 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BBB26CF12EBF1C8000B91D13 /* Build configuration list for PBXNativeTarget "Markdown Opener" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBB26CF22EBF1C8000B91D13 /* Debug */,
+				BBB26CF32EBF1C8000B91D13 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BBC5692D2EF7BCAD00AB39DC /* Build configuration list for PBXNativeTarget "FlashcardWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBC5692E2EF7BCAD00AB39DC /* Debug */,
+				BBC5692F2EF7BCAD00AB39DC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BB0E24912F9D4B7E00BE0095 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.7.3;
+			};
+		};
+		BB1B0B652EE55B2B00005683 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mlalma/MLXUtilsLibrary.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.0.6;
+			};
+		};
+		BB1B0B682EE55B3500005683 /* XCRemoteSwiftPackageReference "MisakiSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mlalma/MisakiSwift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.4;
+			};
+		};
+		BB1B0B6B2EE55B4600005683 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.29.1;
+			};
+		};
+		BB1B0B6E2EE55B5800005683 /* XCRemoteSwiftPackageReference "kokoro-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mlalma/kokoro-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.9;
+			};
+		};
+		BB4799A92EFFF99B000E1899 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+		BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.7.0;
+			};
+		};
+		BBAA38032EC066C200ABE343 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.20;
+			};
+		};
+		BBAA381F2EC07F0E00ABE343 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googleads/swift-package-manager-google-mobile-ads.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.13.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BB0E248F2F9D466D00BE0095 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Markdown;
+		};
+		BB0E24922F9D4B7E00BE0095 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB0E24912F9D4B7E00BE0095 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		BB0E24942F9D4DD900BE0095 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB0E24912F9D4B7E00BE0095 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		BB1B0B662EE55B2B00005683 /* MLXUtilsLibrary */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB1B0B652EE55B2B00005683 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */;
+			productName = MLXUtilsLibrary;
+		};
+		BB1B0B692EE55B3500005683 /* MisakiSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB1B0B682EE55B3500005683 /* XCRemoteSwiftPackageReference "MisakiSwift" */;
+			productName = MisakiSwift;
+		};
+		BB1B0B6C2EE55B4600005683 /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB1B0B6B2EE55B4600005683 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		BB1B0B6F2EE55B5800005683 /* KokoroSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB1B0B6E2EE55B5800005683 /* XCRemoteSwiftPackageReference "kokoro-ios" */;
+			productName = KokoroSwift;
+		};
+		BB4799AA2EFFF99B000E1899 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB4799A92EFFF99B000E1899 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		BB4799AD2EFFFAA6000E1899 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		BB4799AF2EFFFAA6000E1899 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		BB4799B12EFFFBD7000E1899 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB4799A92EFFF99B000E1899 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
+		BB4799B32EFFFC5C000E1899 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		BBAA38042EC066C200ABE343 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BBAA38032EC066C200ABE343 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+		BBAA38202EC07F0E00ABE343 /* GoogleMobileAds */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BBAA381F2EC07F0E00ABE343 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */;
+			productName = GoogleMobileAds;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = BBB26CDE2EBF1C7F00B91D13 /* Project object */;
+}
