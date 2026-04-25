@@ -712,7 +712,7 @@ struct EditorViewBody: View {
                         )
                     } else if isDOCX || isPPTX, let url = currentURL {
                         QuickLookPreview(url: url)
-                    } else if currentURL?.pathExtension.lowercased() == "md" {
+                    } else                     if currentURL?.pathExtension.lowercased() == "md" {
                         if preferredViewForCurrent == .preview {
                             WebMarkdownViewWithTTS(
                                 markdown: text,
@@ -727,7 +727,7 @@ struct EditorViewBody: View {
                                             restoredDocumentChat: nil
                                         )
                                 },
-                                isEditorFullScreen: $isEditorFullScreen
+                                filePath: currentURL?.path, isEditorFullScreen: $isEditorFullScreen
                             )
                         } else {
                             NativeMarkdownView(

@@ -129,6 +129,70 @@ enum AIVoice: String, CaseIterable, Identifiable, Codable {
     var filename: String { rawValue + ".npy" }
 }
 
+enum TTSFontSize: String, CaseIterable, Identifiable, Codable {
+    case small = "Small"
+    case medium = "Medium"
+    case large = "Large"
+
+    var id: String { rawValue }
+
+    var fontSize: CGFloat {
+        switch self {
+        case .small: return 14
+        case .medium: return 17
+        case .large: return 22
+        }
+    }
+}
+
+enum TTSHighlightingStyle: String, CaseIterable, Identifiable, Codable {
+    case word = "Word"
+    case sentence = "Sentence"
+    case paragraph = "Paragraph"
+
+    var id: String { rawValue }
+}
+
+enum TTSTheme: String, CaseIterable, Identifiable, Codable {
+    case system = "System"
+    case light = "Light"
+    case dark = "Dark"
+    case sepia = "Sepia"
+
+    var id: String { rawValue }
+
+    var backgroundColor: Color {
+        switch self {
+        case .system: return Color(UIColor.systemBackground)
+        case .light: return .white
+        case .dark: return Color(red: 0.1, green: 0.1, blue: 0.15)
+        case .sepia: return Color(red: 0.96, green: 0.93, blue: 0.86)
+        }
+    }
+}
+
+enum TTSSleepTimerOption: Int, CaseIterable, Identifiable, Codable {
+    case off = 0
+    case fiveMinutes = 5
+    case tenMinutes = 10
+    case fifteenMinutes = 15
+    case thirtyMinutes = 30
+    case endOfDocument = -1
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .fiveMinutes: return "5 min"
+        case .tenMinutes: return "10 min"
+        case .fifteenMinutes: return "15 min"
+        case .thirtyMinutes: return "30 min"
+        case .endOfDocument: return "End of Doc"
+        }
+    }
+}
+
 enum ChipGroup: String, CaseIterable, Identifiable, Codable {
     case starred = "Starred"
     case tags = "Tags"
@@ -227,6 +291,57 @@ final class MultiSettingsViewModel: ObservableObject {
         get { AIVoice(rawValue: selectedVoiceRaw) ?? .sky }
         set { selectedVoiceRaw = newValue.rawValue }
     }
+
+    // TTS Playback Speed (0.5 - 2.0)
+    @AppStorage("tts_playback_speed") var ttsPlaybackSpeed: Double = 1.0
+
+    // TTS Pitch for AVSpeechSynthesizer (0.5 - 2.0)
+    @AppStorage("tts_pitch") var ttsPitch: Double = 1.0
+
+    // TTS Font Size
+    @AppStorage("tts_font_size") private var ttsFontSizeRaw: String = TTSFontSize.medium.rawValue
+    var ttsFontSize: TTSFontSize {
+        get { TTSFontSize(rawValue: ttsFontSizeRaw) ?? .medium }
+        set { ttsFontSizeRaw = newValue.rawValue }
+    }
+
+    // TTS Highlighting Style
+    @AppStorage("tts_highlighting_style") private var ttsHighlightingStyleRaw: String = TTSHighlightingStyle.word.rawValue
+    var ttsHighlightingStyle: TTSHighlightingStyle {
+        get { TTSHighlightingStyle(rawValue: ttsHighlightingStyleRaw) ?? .word }
+        set { ttsHighlightingStyleRaw = newValue.rawValue }
+    }
+
+    // TTS Theme
+    @AppStorage("tts_theme") private var ttsThemeRaw: String = TTSTheme.system.rawValue
+    var ttsTheme: TTSTheme {
+        get { TTSTheme(rawValue: ttsThemeRaw) ?? .system }
+        set { ttsThemeRaw = newValue.rawValue }
+    }
+
+    // TTS Sleep Timer
+    @AppStorage("tts_sleep_timer") private var ttsSleepTimerRaw: Int = TTSSleepTimerOption.off.rawValue
+    var ttsSleepTimer: TTSSleepTimerOption {
+        get { TTSSleepTimerOption(rawValue: ttsSleepTimerRaw) ?? .off }
+        set { ttsSleepTimerRaw = newValue.rawValue }
+    }
+
+    // TTS Auto Resume
+    @AppStorage("tts_auto_resume") var ttsAutoResume: Bool = true
+
+    // TTS Reading Positions (filePathHash -> chunkIndex)
+    @AppStorage("tts_reading_positions") private var ttsReadingPositionsData: Data = Data()
+    var ttsReadingPositions: [String: Int] {
+        get {
+            (try? JSONDecoder().decode([String: Int].self, from: ttsReadingPositionsData)) ?? [:]
+        }
+        set {
+            ttsReadingPositionsData = (try? JSONEncoder().encode(newValue)) ?? Data()
+        }
+    }
+
+    // TTS Last Played File
+    @AppStorage("tts_last_played_file") var ttsLastPlayedFile: String = ""
 
     // PDF → MD Converter
     @Published var showPDFtoMDConverter: Bool = false

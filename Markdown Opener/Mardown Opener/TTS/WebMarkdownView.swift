@@ -352,8 +352,9 @@ struct WebMarkdownView: UIViewRepresentable {
 
 struct WebMarkdownViewWithTTS: View {
     let markdown: String
-    let onAskAIAboutSelection: (String) -> Void   // ← NEW
-    
+    let onAskAIAboutSelection: (String) -> Void
+    let filePath: String?
+
     @Binding var isEditorFullScreen: Bool
     @State private var showingTTSSheet = false
     @EnvironmentObject var ttsModel: TestAppModel
@@ -362,14 +363,14 @@ struct WebMarkdownViewWithTTS: View {
         WebMarkdownView(
             markdown: markdown,
             onListenTapped: { showingTTSSheet = true },
-            onAskAIAboutSelection: onAskAIAboutSelection,   // ← forward
+            onAskAIAboutSelection: onAskAIAboutSelection,
             isEditorFullScreen: $isEditorFullScreen,
             ttsEnabled: .constant(MultiSettingsViewModel.shared.ttsEnabled)
         )
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.3), value: isEditorFullScreen)
         .sheet(isPresented: $showingTTSSheet) {
-            TTSSheet(markdown: markdown)
+            TTSSheet(markdown: markdown, filePath: filePath)
                 .environmentObject(ttsModel)
         }
     }

@@ -16,6 +16,7 @@ final class TestAppModel: ObservableObject {
     @Published var voiceNames: [String] = []
     @Published var selectedVoice: String = ""
     @Published var stringToFollowTheAudio: String = ""
+    @Published var playbackRate: Float = 1.0
 
     var timer: Timer?
 
@@ -144,14 +145,12 @@ final class TestAppModel: ObservableObject {
     // MARK: - Speech
 
     func say(text: String, completion: @escaping () -> Void) {
-        // 尊重用戶設置
         guard settings.ttsEnabled else {
             print("TTS is disabled in settings – skipping speech.")
             completion()
             return
         }
 
-        // 確保所有必要組件已準備好
         guard let engine = audioEngine,
               let player = playerNode,
               let tts = kokoroTTSEngine,
@@ -162,77 +161,87 @@ final class TestAppModel: ObservableObject {
             return
         }
 
-        // 停止並重置舊的播放
         player.stop()
         player.reset()
 
-        // 生成音頻 - ([Float], token array)
-        var audioFloats: [Float]
-        var tokenArray: Any?
-
-        do {
-            let generated = try tts.generateAudio(
-                voice: voiceData,
-                language: selectedVoice.first == "a" ? .enUS : .enGB,
-                text: text
-            )
-
-            audioFloats = generated.0   // [Float]
-            tokenArray = generated.1
-        } catch {
-            print("KokoroTTS generateAudio failed: \(error.localizedDescription)")
-            completion()
-            return
-        }
-
-        // 安全打印 token text（用 NSDictionary 形式）
-        if let tokens = tokenArray as? [Any] {
-            for case let token as NSDictionary in tokens {
-                if let tokenText = token["text"] as? String {
-                    print("Token: \(tokenText)")
-                }
-            }
-        }
-
-        let sampleRate = Double(KokoroTTS.Constants.samplingRate)
-        let audioLength = Double(audioFloats.count) / sampleRate
-        print("Audio Length: \(String(format: "%.4f", audioLength))s")
-
-        // 建立 AVAudioPCMBuffer
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(audioFloats.count)) else {
-            print("Failed to create AVAudioPCMBuffer")
-            completion()
-            return
-        }
-
-        buffer.frameLength = buffer.frameCapacity
-        let channelData = buffer.floatChannelData![0]
-
-        // 正確方式：用 [Float] 的 withUnsafeBufferPointer 複製數據
-        audioFloats.withUnsafeBufferPointer { srcBuffer in
-            let src = srcBuffer.baseAddress!
-            channelData.initialize(repeating: 0, count: audioFloats.count)
-            channelData.update(from: src, count: audioFloats.count)
-        }
-
-        // 啟動 audio engine（如未運行）
-        if !engine.isRunning {
-            do {
-                try engine.start()
-            } catch {
-                print("AudioEngine start failed: \(error.localizedDescription)")
-                completion()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else {
+                DispatchQueue.main.async { completion() }
                 return
             }
+
+            var audioFloats: [Float] = []
+            var tokenArray: Any?
+
+            do {
+                let generated = try tts.generateAudio(
+                    voice: voiceData,
+                    language: self.selectedVoice.first == "a" ? .enUS : .enGB,
+                    text: text
+                )
+                audioFloats = generated.0
+                tokenArray = generated.1
+            } catch {
+                print("KokoroTTS generateAudio failed: \(error.localizedDescription)")
+                DispatchQueue.main.async { completion() }
+                return
+            }
+
+            if let tokens = tokenArray as? [Any] {
+                for case let token as NSDictionary in tokens {
+                    if let tokenText = token["text"] as? String {
+                        print("Token: \(tokenText)")
+                    }
+                }
+            }
+
+            let sampleRate = Double(KokoroTTS.Constants.samplingRate)
+            let audioLength = Double(audioFloats.count) / sampleRate
+            print("Audio Length: \(String(format: "%.4f", audioLength))s")
+
+            guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(audioFloats.count)) else {
+                print("Failed to create AVAudioPCMBuffer")
+                DispatchQueue.main.async { completion() }
+                return
+            }
+
+            buffer.frameLength = buffer.frameCapacity
+            if let channelData = buffer.floatChannelData?[0] {
+                audioFloats.withUnsafeBufferPointer { srcBuffer in
+                    let src = srcBuffer.baseAddress!
+                    channelData.initialize(repeating: 0, count: audioFloats.count)
+                    channelData.update(from: src, count: audioFloats.count)
+                }
+            }
+
+            DispatchQueue.main.async {
+                guard self.audioEngine != nil, self.playerNode != nil else {
+                    completion()
+                    return
+                }
+
+                if !engine.isRunning {
+                    do {
+                        try engine.start()
+                    } catch {
+                        print("AudioEngine start failed: \(error.localizedDescription)")
+                        completion()
+                        return
+                    }
+                }
+
+                player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: completion)
+                player.play()
+                player.rate = self.playbackRate
+                self.stringToFollowTheAudio = text
+            }
         }
+    }
 
-        // 排程播放並在完成時調用 completion
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: completion)
-        player.play()
-
-        // 更新跟讀文字
-        stringToFollowTheAudio = text
+    func updatePlaybackRate(_ rate: Float) {
+        playbackRate = rate
+        playerNode?.rate = rate
     }
 
     // MARK: - Deinit Cleanup
