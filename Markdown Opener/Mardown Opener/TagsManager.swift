@@ -204,7 +204,7 @@ final class TagsManager: ObservableObject {
         
         // Prevent duplicates (case-insensitive)
         if allTags.contains(where: { $0.name.lowercased() == trimmed.lowercased() }) {
-            print("Tag named '\(trimmed)' already exists")
+            Log.debug("Tag named '\(trimmed)' already exists", category: .data)
             return
         }
         
@@ -270,7 +270,7 @@ final class TagsManager: ObservableObject {
             let data = try JSONEncoder().encode(allTags)
             UserDefaults.standard.set(data, forKey: allTagsKey)
         } catch {
-            print("Failed to encode tags:", error)
+            Log.error("Failed to encode tags", category: .data, error: error)
         }
     }
     

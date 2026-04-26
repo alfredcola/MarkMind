@@ -4,6 +4,8 @@
 //
 //  Fixed: Infinite sync loop resolved with sync guard
 //  Added: Coin transaction history (last 20 records) saved to Firestore
+//  Security Note: Coin balance stored in UserDefaults plaintext.
+//  For production, consider using Keychain for sensitive data.
 //
 
 import GoogleMobileAds
@@ -63,7 +65,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.isUpdatingFromCloud = false
         }
-        print("Coins forcibly reset to \(amount) on sign-out")
+        Log.warning("Coins forcibly reset to \(amount) on sign-out", category: .subscription)
     }
     
     // MARK: - Safe Coin Updates (Used by Cloud & Subscriptions)
@@ -71,12 +73,12 @@ final class RewardedAdManager: NSObject, ObservableObject {
     /// Use this when adding coins from ads, subscription, etc.
     func addCoins(_ amount: Int, reason: String = "earn", note: String? = nil) {
         guard amount > 0 else {
-            print("Warning: Attempted to add non-positive coins: \(amount)")
+            Log.warning("Attempted to add non-positive coins: \(amount)", category: .subscription)
             return
         }
         
         coins += amount
-        print("Added \(amount) coins. Total: \(coins)")
+        Log.debug("Added \(amount) coins. Total: \(coins)", category: .subscription)
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
         
         recordTransaction(amount: amount, reason: reason, note: note)
@@ -95,7 +97,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
             self.isUpdatingFromCloud = false
         }
         
-        print("Synced coins from cloud: \(amount)")
+        Log.debug("Synced coins from cloud: \(amount)", category: .subscription)
         
         if difference != 0 {
             recordTransaction(
@@ -110,7 +112,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
     
     private func recordTransaction(amount: Int, reason: String, adType: String? = nil, note: String? = nil) {
         guard let uid = AuthManager.shared.currentUserId, AuthManager.shared.isSignedIn else {
-            print("Cannot save transaction — no authenticated user")
+            Log.warning("Cannot save transaction — no authenticated user", category: .subscription)
             return
         }
         
@@ -130,7 +132,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
         // Save the transaction
         collection.document().setData(transaction.firestoreData) { error in
             if let error {
-                print("Failed to save coin transaction: \(error.localizedDescription)")
+                Log.error("Failed to save coin transaction", category: .subscription, error: error)
                 return
             }
             
@@ -145,7 +147,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
             .limit(to: toKeep + 5)  // small buffer
             .getDocuments { snapshot, error in
                 guard let documents = snapshot?.documents, error == nil else {
-                    print("Trim failed: \(error?.localizedDescription ?? "unknown error")")
+                    Log.error("Trim failed", category: .subscription)
                     return
                 }
                 
@@ -160,9 +162,9 @@ final class RewardedAdManager: NSObject, ObservableObject {
                 
                 batch.commit { error in
                     if let error {
-                        print("Failed to trim old transactions: \(error.localizedDescription)")
+                        Log.error("Failed to trim old transactions", category: .subscription, error: error)
                     } else {
-                        print("Trimmed \(documentsToDelete.count) old coin transactions")
+                        Log.debug("Trimmed \(documentsToDelete.count) old coin transactions", category: .subscription)
                     }
                 }
             }
@@ -177,13 +179,13 @@ final class RewardedAdManager: NSObject, ObservableObject {
     @discardableResult
     func spendCoins(_ amount: Int = 10, note: String? = "feature_usage") -> Bool {
         guard coins >= amount else {
-            print("Not enough coins: have \(coins), need \(amount)")
+            Log.warning("Not enough coins: have \(coins), need \(amount)", category: .subscription)
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             return false
         }
         
         coins -= amount
-        print("Spent \(amount) coins. Remaining: \(coins)")
+        Log.debug("Spent \(amount) coins. Remaining: \(coins)", category: .subscription)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         recordTransaction(amount: -amount, reason: "spend", note: note)
@@ -199,12 +201,12 @@ final class RewardedAdManager: NSObject, ObservableObject {
             guard let self else { return }
             
             if let error {
-                print("Rewarded ad failed to load: \(error.localizedDescription)")
+                Log.error("Rewarded ad failed to load", category: .subscription, error: error)
                 self.rewardedAd = nil
                 return
             }
             
-            print("Rewarded ad loaded successfully")
+            Log.debug("Rewarded ad loaded successfully", category: .subscription)
             self.rewardedAd = ad
             self.rewardedAd?.fullScreenContentDelegate = self
         }
@@ -212,7 +214,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
     
     func showAd(from rootViewController: UIViewController, onReward: @escaping () -> Void) {
         guard let ad = rewardedAd else {
-            print("Ad not ready")
+            Log.warning("Ad not ready", category: .subscription)
             loadAd()
             return
         }
@@ -231,7 +233,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
     }
     
     private var rewardedAd: RewardedAd?
-    private let adUnitID = "ca-app-pub-2445337445676652/1626687605"
+    private let adUnitID = Constants.Ads.rewardedAdUnitID
     
     // MARK: - Daily Login Reward
     
@@ -264,15 +266,15 @@ final class RewardedAdManager: NSObject, ObservableObject {
                 )
             }
             
-            print("🎉 Daily login reward granted: +\(rewardAmount) coins")
+            Log.info("Daily login reward granted: +\(rewardAmount) coins", category: .subscription)
         } else {
-            print("Daily reward already claimed today (after 8 AM)")
+            Log.debug("Daily reward already claimed today (after 8 AM)", category: .subscription)
         }
     }
     
     func resetDailyRewardClaim() {
         UserDefaults.standard.removeObject(forKey: lastDailyRewardDateKey)
-        print("Daily reward claim reset")
+        Log.debug("Daily reward claim reset", category: .subscription)
     }
     
     func hasClaimedDailyRewardToday() -> Bool {
@@ -298,7 +300,7 @@ final class RewardedAdManager: NSObject, ObservableObject {
         components.second = 0
         
         guard let today8AM = calendar.date(from: components) else {
-            return Date().addingTimeInterval(86400)
+            return Date().addingTimeInterval(Constants.Time.secondsPerDay)
         }
         
         if Date() >= today8AM {
@@ -337,13 +339,13 @@ struct CoinTransaction: Identifiable {
 
 extension RewardedAdManager: FullScreenContentDelegate {
     func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
-        print("Rewarded ad dismissed")
+        Log.debug("Rewarded ad dismissed", category: .subscription)
         loadAd()
     }
     
     func ad(_ ad: FullScreenPresentingAd,
             didFailToPresentFullScreenContentWithError error: Error) {
-        print("Rewarded ad failed to present: \(error.localizedDescription)")
+        Log.error("Rewarded ad failed to present", category: .subscription, error: error)
         loadAd()
     }
 }

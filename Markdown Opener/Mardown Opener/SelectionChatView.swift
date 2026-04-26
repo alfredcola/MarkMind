@@ -92,7 +92,7 @@ struct SelectionChatView: View {
                     .onAppear {
                         scrollToBottom(proxy)
                     }
-                    .onChange(of: messages.count) {
+                    .onChange(of: messages.count) { _, _ in
                         scrollToBottom(proxy)
                     }
                 }
@@ -281,7 +281,7 @@ struct SelectionChatView: View {
                 apiKey: apiKey,
                 messages: apiMessages,
                 temperature: 0.1,
-                maxTokens: 8000
+                maxTokens: Constants.API.maxTokensPDF
             )
             
             var finalReply: String

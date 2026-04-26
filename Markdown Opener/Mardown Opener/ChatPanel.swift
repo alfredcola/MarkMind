@@ -65,10 +65,6 @@ struct ChatPanel: View {
         AIReplyLanguage(rawValue: aiReplyLanguageRaw) ?? .english
     }
 
-    private func loc(_ en: String, _ zh: String) -> String {
-        aiReplyLanguage == .traditionalChinese ? zh : en
-    }
-
     private var languageSystemInstruction: String {
         switch aiReplyLanguage {
         case .english: return "Respond in English."
@@ -82,7 +78,7 @@ struct ChatPanel: View {
     private var shortcutItems: [ShortcutItem] {
         let summarizePrompt =
             seedPrompt.isEmpty
-            ? loc(
+            ? Localization.locWithUserPreference(
                 """
                 Summarize the entire document in a clear, structured way for efficient review and revision. 
                 Use appropriate Markdown headings (##, ###), bullet points, and numbered lists. 
@@ -101,14 +97,14 @@ struct ChatPanel: View {
         return [
             // Primary
             ShortcutItem(
-                title: loc("Summarize", "摘要"),
+                title: Localization.locWithUserPreference("Summarize", "摘要"),
                 prompt: summarizePrompt,
                 isPrimary: true
             ),
 
             ShortcutItem(
-                title: loc("Study", "溫習"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Study", "溫習"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Please create concise review notes for the course "[Course Code] [Course Name]".
 
@@ -181,8 +177,8 @@ struct ChatPanel: View {
 
             // Core analysis
             ShortcutItem(
-                title: loc("Key points", "重點"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Key points", "重點"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Extract and list the most important key points, takeaways, and conclusions from the document. 
                     Present them as concise bullet points under clear thematic headings if appropriate. 
@@ -197,8 +193,8 @@ struct ChatPanel: View {
                 isPrimary: false
             ),
             ShortcutItem(
-                title: loc("Action items", "行動項目"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Action items", "行動項目"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Identify all actionable tasks, recommendations, or to-dos mentioned in the document. 
                     For each item, provide:
@@ -222,8 +218,8 @@ struct ChatPanel: View {
             ),
 
             ShortcutItem(
-                title: loc("Outline", "大綱"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Outline", "大綱"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Create a detailed hierarchical outline of the entire document. 
                     Use Markdown headings and nested bullet points to accurately reflect the document's structure and logical flow. 
@@ -238,8 +234,8 @@ struct ChatPanel: View {
                 isPrimary: false
             ),
             ShortcutItem(
-                title: loc("Mind Map", "心智圖"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Mind Map", "心智圖"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Generate a text-based mind map of the document's core concepts and their relationships.
                     Use Markdown nested bullets to show hierarchy and connections.
@@ -255,8 +251,8 @@ struct ChatPanel: View {
             ),
 
             ShortcutItem(
-                title: loc("Definitions", "術語定義"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Definitions", "術語定義"),
+                prompt: Localization.locWithUserPreference(
                     """
                     List all important terms, jargon, acronyms, or technical concepts appearing in the document. 
                     For each term, provide a concise, accurate definition in your own words based on the document's context. 
@@ -271,8 +267,8 @@ struct ChatPanel: View {
                 isPrimary: false
             ),
             ShortcutItem(
-                title: loc("Explain Simply", "簡化解釋"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Explain Simply", "簡化解釋"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Explain the main ideas and key concepts of this document as if to a beginner or non-expert.
                     Use simple language, avoid jargon (or explain it), and include analogies where helpful.
@@ -289,8 +285,8 @@ struct ChatPanel: View {
 
             // Critical thinking
             ShortcutItem(
-                title: loc("Critique", "評析"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Critique", "評析"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Provide a balanced critique of the document: strengths, weaknesses, logical gaps, assumptions, and potential improvements.
                     Use constructive tone and organize under clear headings.
@@ -305,8 +301,8 @@ struct ChatPanel: View {
 
             // Questions & study
             ShortcutItem(
-                title: loc("Study Questions", "學習問題"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Study Questions", "學習問題"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Generate 8–12 thoughtful study or discussion questions based on the document content.
                     Include a mix of factual recall, comprehension, analysis, and application questions.
@@ -323,16 +319,16 @@ struct ChatPanel: View {
 
             // Translation & comparison
             ShortcutItem(
-                title: loc("Translate to EN", "翻譯成英文"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Translate to EN", "翻譯成英文"),
+                prompt: Localization.locWithUserPreference(
                     "Translate the entire document into natural, professional English. Preserve formatting and structure as much as possible using Markdown.",
                     "請將整份文件翻譯成自然、專業的英文。盡量保留原有的格式與結構，使用 Markdown 呈現。"
                 ),
                 isPrimary: false
             ),
             ShortcutItem(
-                title: loc("Compare Versions", "版本比較"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Compare Versions", "版本比較"),
+                prompt: Localization.locWithUserPreference(
                     """
                     This query is used when multiple files are selected.
                     Compare the selected documents: highlight key differences, similarities, changes in structure, content additions/removals, and tone shifts.
@@ -349,8 +345,8 @@ struct ChatPanel: View {
 
             // Quick facts
             ShortcutItem(
-                title: loc("Quick Facts", "快速事實"),
-                prompt: loc(
+                title: Localization.locWithUserPreference("Quick Facts", "快速事實"),
+                prompt: Localization.locWithUserPreference(
                     """
                     Extract key factual information such as names, dates, numbers, locations, statistics, and references.
                     Present in a clean bullet list or table format.
@@ -372,7 +368,7 @@ struct ChatPanel: View {
             mainChatView
                 .background(Color(UIColor.systemBackground))
                 .onTapGesture { dismissKeyboard() }
-                .accessibilityAction(named: loc("Toggle full screen", "切換全螢幕"))
+                .accessibilityAction(named: Localization.locWithUserPreference("Toggle full screen", "切換全螢幕"))
             {
                 withAnimation {
                     isFullScreen.toggle()
@@ -381,7 +377,7 @@ struct ChatPanel: View {
             }
                 .alert(isPresented: .constant(errorMessage != nil)) {
                     Alert(
-                        title: Text(loc("Error", "錯誤")),
+                        title: Text(Localization.locWithUserPreference("Error", "錯誤")),
                         message: Text(errorMessage ?? ""),
                         dismissButton: .default(Text("OK")) {
                             errorMessage = nil
@@ -423,8 +419,8 @@ struct ChatPanel: View {
             }
         }
         .animation(.spring(), value: showSidebar)
-        .onChange(of: sending) {
-            UIApplication.shared.isIdleTimerDisabled = sending
+        .onChange(of: sending) { _, newValue in
+            UIApplication.shared.isIdleTimerDisabled = newValue
         }
     }
 
@@ -461,7 +457,7 @@ struct ChatPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(loc("AI Assistant", "AI 助手"))
+                Text(Localization.locWithUserPreference("AI Assistant", "AI 助手"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -542,7 +538,7 @@ struct ChatPanel: View {
             }
             .background(Color(.systemGroupedBackground))
             .onAppear { scrollToBottom(proxy) }
-            .onChange(of: convoAbbb.messages(for: docURL)) {
+            .onChange(of: convoAbbb.messages(for: docURL)) { _, _ in
                 scrollToBottom(proxy)
             }
             .onTapGesture(count: 2) {
@@ -561,11 +557,11 @@ struct ChatPanel: View {
                 .foregroundStyle(.purple.opacity(0.6))
 
             VStack(spacing: 8) {
-                Text(loc("Ready to help!", "準備好幫助你了！"))
+                Text(Localization.locWithUserPreference("Ready to help!", "準備好幫助你了！"))
                     .font(.headline)
                     .foregroundColor(.primary)
 
-                Text(loc(
+                Text(Localization.locWithUserPreference(
                     "Ask me anything about this document.\nTry a shortcut below to get started.",
                     "你可以問關於這個檔案的任何問題。\n嘗試下方的快捷鍵開始使用。"
                 ))
@@ -636,7 +632,7 @@ struct ChatPanel: View {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.on.doc")
                             .font(.caption)
-                        Text(loc("Attached Files", "附加檔案"))
+                        Text(Localization.locWithUserPreference("Attached Files", "附加檔案"))
                             .font(.caption.weight(.medium))
                         Text("(\(selectedFiles.count))")
                             .font(.caption)
@@ -888,12 +884,12 @@ struct ChatPanel: View {
         let isSubscribed = SubscriptionManager.shared.isSubscribed
         
         if isSubscribed {
-            errorMessage = loc(
+            errorMessage = Localization.locWithUserPreference(
                 "Not enough coins. Buy coins, or watch an ad to earn more!",
                 "硬幣不足。購買硬幣，或觀看廣告賺取更多！"
             )
         } else {
-            errorMessage = loc(
+            errorMessage = Localization.locWithUserPreference(
                 "Not enough coins. Subscribe to Premium for 100 coins/month (ad-free!), buy coins, or watch an ad to earn more!",
                 "硬幣不足。訂閱 Premium 每月獲得 100 硬幣（無廣告！）、購買硬幣，或觀看廣告賺取更多！"
             )
@@ -904,33 +900,7 @@ struct ChatPanel: View {
         
         return false
     }
-    
-    @MainActor
-    private func withCoinProtected<T>(
-        actionDescription: String = "Chat API call",
-        operation: () async throws -> T
-    ) async throws -> T {
-        // Deduct coin first
-        let deducted = deductCoinIfPossible()
-        guard deducted else {
-            throw NSError(domain: "CoinError", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: loc(
-                    "Not enough coins to send message.",
-                    "硬幣不足，無法發送訊息。"
-                )
-            ])
-        }
 
-        do {
-            let result = try await operation()
-            // Success → coin stays deducted
-            return result
-        } catch {
-            print("❌ \(actionDescription) failed → refunding 1 coin. Error: \(error)")
-            RewardedAdManager.shared.earnCoin()
-            throw error
-        }
-    }
     private func buildConversationForAPI(maxMessages: Int = 24, maxTotalTokensEstimate: Int = 100_000) -> [ChatMessage] {
         var conversation: [ChatMessage] = []
         
@@ -994,7 +964,7 @@ struct ChatPanel: View {
         }
 
         do {
-            try await withCoinProtected(actionDescription: "Shortcut / quick action") {
+            try await CoinProtection.withCoinProtected(actionDescription: "Shortcut / quick action") {
                 let apiKey =
                     ProcessInfo.processInfo.environment["MINIMAX_API_KEY"]
                     ?? (Bundle.main.object(forInfoDictionaryKey: "MiniMaxAPIKey") as? String)
@@ -1002,7 +972,7 @@ struct ChatPanel: View {
 
                 guard !apiKey.isEmpty else {
                     throw NSError(domain: "APIError", code: -2, userInfo: [
-                        NSLocalizedDescriptionKey: loc(
+                        NSLocalizedDescriptionKey: Localization.locWithUserPreference(
                             "Missing MiniMax API key.",
                             "缺少 MiniMax API 金鑰。"
                         )
@@ -1013,7 +983,7 @@ struct ChatPanel: View {
                     apiKey: apiKey,
                     messages: fullConversation,  // ← use full history
                     temperature: 0.1,
-                    maxTokens: 8192
+                    maxTokens: Constants.API.maxTokensStandard
                 )
 
                 var finalReply: String
@@ -1072,7 +1042,7 @@ struct ChatPanel: View {
         var finalReply: String = ""
         
         do {
-            try await withCoinProtected(actionDescription: "Normal chat message") {
+            try await CoinProtection.withCoinProtected(actionDescription: "Normal chat message") {
                 var lastUserMessageIndex = fullConversation.count - 1
                 if lastUserMessageIndex >= 0 && fullConversation[lastUserMessageIndex].role == .user {
                     fullConversation[lastUserMessageIndex].content += languageReminder
@@ -1084,7 +1054,7 @@ struct ChatPanel: View {
 
                 guard !apiKey.isEmpty else {
                     throw NSError(domain: "APIError", code: -2, userInfo: [
-                        NSLocalizedDescriptionKey: loc(
+                        NSLocalizedDescriptionKey: Localization.locWithUserPreference(
                             "Missing MiniMax API key.",
                             "缺少 MiniMax API 金鑰。"
                         )
@@ -1095,7 +1065,7 @@ struct ChatPanel: View {
                     apiKey: apiKey,
                     messages: fullConversation,
                     temperature: 0.1,
-                    maxTokens: 8192
+                    maxTokens: Constants.API.maxTokensStandard
                 )
 
                 switch aiReplyLanguage {

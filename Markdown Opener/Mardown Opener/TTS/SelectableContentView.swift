@@ -28,16 +28,17 @@ struct SelectableContentView<Content: UIView>: UIViewRepresentable {
         
         // Floating Ask AI button
         let askButton = UIButton(configuration: .filled(), primaryAction: nil)
-        var cfg = askButton.configuration!
-        cfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.85)
-        cfg.baseForegroundColor = .white
-        cfg.title = "Ask AI"
-        cfg.image = UIImage(systemName: "brain.head.profile")
-        cfg.imagePlacement = .leading
-        cfg.imagePadding = 8
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 16, bottom: 11, trailing: 16)
-        cfg.cornerStyle = .capsule
-        askButton.configuration = cfg
+        if var cfg = askButton.configuration {
+            cfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.85)
+            cfg.baseForegroundColor = .white
+            cfg.title = "Ask AI"
+            cfg.image = UIImage(systemName: "brain.head.profile")
+            cfg.imagePlacement = .leading
+            cfg.imagePadding = 8
+            cfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 16, bottom: 11, trailing: 16)
+            cfg.cornerStyle = .capsule
+            askButton.configuration = cfg
+        }
         askButton.layer.shadowOpacity = 0.4
         askButton.layer.shadowRadius = 10
         askButton.layer.shadowOffset = CGSize(width: 0, height: 5)

@@ -81,9 +81,9 @@ struct PDFtoMD: View {
                 handleImport(result)
             }
             .toolbar {
-                if markdownURL != nil {
+                if let url = markdownURL {
                     ShareLink(
-                        item: markdownURL!,
+                        item: url,
                         subject: Text("Converted Markdown"),
                         message: Text("Here is the converted Markdown file."),
                         preview: .init(
@@ -236,6 +236,7 @@ struct PDFtoMD: View {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 240
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(
             "Bearer \(apiKey)",
@@ -251,7 +252,7 @@ struct PDFtoMD: View {
                 ]
             ],
             "temperature": 0.1,
-            "max_tokens": 8000,
+            "max_tokens": Constants.API.maxTokensPDF,
             "stream": false
         ]
 

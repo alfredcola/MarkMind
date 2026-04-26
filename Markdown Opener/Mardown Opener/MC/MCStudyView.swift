@@ -18,7 +18,9 @@ struct MCStudyView: View {
     @ObservedObject var session: MCSession
     @EnvironmentObject var mcStore: MCStore
     @ObservedObject var rewardedAdManager = RewardedAdManager.shared
-    
+
+    typealias ChineseTTSDelegate = TTSUtils.ChineseTTSDelegate
+
     let docURL: URL?
     let docText: String?
     
@@ -121,7 +123,7 @@ struct MCStudyView: View {
         }
         
         do {
-            let explanation = try await withCoinProtected(actionDescription: "Card explanation") {
+            let explanation =             try await CoinProtection.withCoinProtected(actionDescription: "Card explanation") {
                 let userIdx = card.lastUserIndex ?? card.correctIndex
                 let userAnswer = card.options[userIdx]
                 
@@ -147,17 +149,20 @@ struct MCStudyView: View {
     // MARK: - Spaced Repetition System
     func calculateSRScore(for card: MCcard) -> Double {
         let baseScore = 1.0
-        
+
         let accuracyRate = card.timesSeen > 0
         ? Double(card.timesCorrect) / Double(card.timesSeen)
         : 0.5
-        
-        let recencyWeight = card.lastAttemptDate != nil
-        ? max(0, 1.0 - Date().timeIntervalSince(card.lastAttemptDate!) / (7 * 24 * 60 * 60))
-        : 0.0
-        
+
+        let recencyWeight: Double
+        if let lastAttempt = card.lastAttemptDate {
+            recencyWeight = max(0, 1.0 - Date().timeIntervalSince(lastAttempt) / (7 * 24 * 60 * 60))
+        } else {
+            recencyWeight = 0.0
+        }
+
         let difficultyWeight = 1.0 - accuracyRate
-        
+
         return baseScore * (0.3 + recencyWeight * 0.3 + difficultyWeight * 0.4)
     }
     
@@ -651,8 +656,8 @@ struct MCStudyView: View {
             }
             
         }
-        .onChange(of: isGenerating) {
-            UIApplication.shared.isIdleTimerDisabled = isGenerating
+        .onChange(of: isGenerating) { _, newValue in
+            UIApplication.shared.isIdleTimerDisabled = newValue
         }
         .onAppear {
             adManager.loadAd()
@@ -993,55 +998,21 @@ struct MCStudyView: View {
     func startTTS(for text: String) {
         guard ttsEnabled, !text.isEmpty else { return }
         
-        let cleanText = cleanMarkdownForTTS(text)
-        let (isChinese, _) = detectContentLanguage(cleanText)
+        let cleanText = TTSUtils.cleanMarkdownForTTS(text)
+        let (isChinese, _) = TTSUtils.detectContentLanguage(cleanText)
         ttsUseBuiltInTTS = isChinese || !TestAppModel.isSupportedDevice()
         
-        let chunks = computeTTSChunks(from: cleanText, isChinese: isChinese)
+        let chunks = TTSUtils.computeTTSChunks(from: cleanText, isChinese: isChinese)
         if chunks.isEmpty { return }
-        
+
         ttsChunks = chunks
         ttsCurrentChunkIndex = 0
         ttsIsPlaying = true
         ttsSpokenSoFar = ""
-        
+
         playCurrentTTSChunk()
     }
-    
-    func computeTTSChunks(from text: String, isChinese: Bool)
-    -> [String]
-    {
-        let maxLength = 220
-        if isChinese {
-            let punctuation = CharacterSet(charactersIn: "。？！，；：…")
-            let sentences = text.components(separatedBy: punctuation)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { $0.count > 1 }
-            return
-            sentences
-                .flatMap {
-                    safeSplitLongSentence(sentence: $0, maxLength: maxLength)
-                }
-                .filter { $0.count > 3 }
-        } else {
-            let sentences = linguisticSentenceSplit(text)
-            var final: [String] = []
-            for s in sentences {
-                if s.count <= maxLength {
-                    final.append(s)
-                } else {
-                    final.append(
-                        contentsOf: safeSplitLongSentence(
-                            sentence: s,
-                            maxLength: maxLength
-                        )
-                    )
-                }
-            }
-            return final.filter { !$0.isEmpty }
-        }
-    }
-    
+
     func playCurrentTTSChunk() {
         guard ttsIsPlaying, ttsCurrentChunkIndex < ttsChunks.count else {
             finishTTSPlayback()
@@ -1155,14 +1126,14 @@ struct MCStudyView: View {
             withTimeInterval: 0.2,
             repeats: true
         ) { _ in
-            guard !model.stringToFollowTheAudio.isEmpty else { return }
-            self.ttsSpokenSoFar = model.stringToFollowTheAudio
+            guard !self.model.stringToFollowTheAudio.isEmpty else { return }
+            self.ttsSpokenSoFar = self.model.stringToFollowTheAudio
                 .trimmingCharacters(in: .whitespaces)
         }
     }
     
     func playChineseTTS(_ text: String) {
-        let (isChinese, _) = detectContentLanguage(text)
+        let (isChinese, _) = TTSUtils.detectContentLanguage(text)
         let locale = isChinese ? "zh-HK" : "en-US"
         
         ttsChineseDelegate = ChineseTTSDelegate {
@@ -1183,7 +1154,7 @@ struct MCStudyView: View {
             )
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("AVAudioSession error: \(error)")
+            Log.error("AVAudioSession setup failed", category: .audio, error: error)
         }
         
         ttsChineseSynthesizer.speak(utterance)
@@ -1562,15 +1533,6 @@ struct MCStudyView: View {
                 .map { $0 }
         }
         
-        func loc(_ en: String, _ zh: String) -> String {
-            let aiReplyLanguageRaw =
-            UserDefaults.standard.string(forKey: "ai_reply_language")
-            ?? AIReplyLanguage.english.rawValue
-            let aiReplyLanguage =
-            AIReplyLanguage(rawValue: aiReplyLanguageRaw) ?? .english
-            return aiReplyLanguage == .traditionalChinese ? zh : en
-        }
-        
         @MainActor
         func deductCoinIfPossible() -> Bool {
             // First, check if user has enough coins
@@ -1583,12 +1545,12 @@ struct MCStudyView: View {
             let isSubscribed = SubscriptionManager.shared.isSubscribed
             
             if isSubscribed {
-                errorMessage = loc(
+                errorMessage = Localization.locWithUserPreference(
                     "Not enough coins. Buy coins, or watch an ad to earn more!",
                     "硬幣不足。購買硬幣，或觀看廣告賺取更多！"
                 )
             } else {
-                errorMessage = loc(
+                errorMessage = Localization.locWithUserPreference(
                     "Not enough coins. Subscribe to Premium for 100 coins/month (ad-free!), buy coins, or watch an ad to earn more!",
                     "硬幣不足。訂閱 Premium 每月獲得 100 硬幣（無廣告！）、購買硬幣，或觀看廣告賺取更多！"
                 )
@@ -1596,40 +1558,10 @@ struct MCStudyView: View {
             
             // Haptic feedback
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-            
+
             return false
         }
-        
-        @MainActor
-        func withCoinProtected<T>(
-            actionDescription: String = "API operation",
-            operation: () async throws -> T
-        ) async throws -> T {
-            // Attempt to deduct coin first
-            let deducted = deductCoinIfPossible()
-            guard deducted else {
-                throw NSError(domain: "CoinError", code: -1, userInfo: [
-                    NSLocalizedDescriptionKey: loc(
-                        "Not enough coins to perform this action.",
-                        "硬幣不足，無法執行此操作。"
-                    )
-                ])
-            }
-            
-            do {
-                // Perform the API / expensive operation
-                let result = try await operation()
-                // Success → coin remains deducted
-                return result
-            } catch {
-                // Failure → refund the coin
-                print("❌ \(actionDescription) failed → refunding 1 coin. Error: \(error)")
-                RewardedAdManager.shared.earnCoin()
-                
-                throw error
-            }
-        }
-        
+
         func generateMCsLocal(regenerate: Bool = false) async {
             // Early validation — no coin spent yet
             if let err = validateMCInputs() {
@@ -1638,7 +1570,7 @@ struct MCStudyView: View {
             }
             
             do {
-                try await withCoinProtected(actionDescription: "MC card generation") {
+                try await CoinProtection.withCoinProtected(actionDescription: "MC card generation") {
                     
                     var sourceTextBuffer =
                     "### SECTION 1: MANDATORY SOURCE DOCUMENTS ###\n"
@@ -1758,7 +1690,7 @@ struct MCStudyView: View {
                         forInfoDictionaryKey: "MiniMaxAPIKey"
                      ) as? String) ?? "")
                     
-                    print("🔑 API Key present: \(!apiKey.isEmpty)")
+                    Log.debug("API Key present: \(!apiKey.isEmpty)", category: .network)
                     
                     guard !apiKey.isEmpty else {
                         throw NSError(domain: "APIError", code: -1, userInfo: [
@@ -1766,7 +1698,7 @@ struct MCStudyView: View {
                         ])
                     }
                     
-                    print("📤 Sending request to MiniMax...")
+                    Log.debug("Sending request to MiniMax", category: .network)
                     let (replyContent, _) = try await MiniMaxService.chat(
                         apiKey: apiKey,
                         messages: [
@@ -1774,12 +1706,12 @@ struct MCStudyView: View {
                             .init(role: .user, content: userPrompt),
                         ],
                         temperature: 0.1,
-                        maxTokens: 8192
+                        maxTokens: Constants.API.maxTokensStandard
                     )
                     
                     // ── 5. UI & PERSISTENCE ──
                     let cards = parseMCMCs(from: replyContent)
-                    print("✅ Parsed \(cards.count) cards")
+                    Log.debug("Parsed \(cards.count) cards", category: .data)
                     
                     if let url = docURL { try mcStore.save(cards, for: url) }
                     
@@ -1790,7 +1722,7 @@ struct MCStudyView: View {
                         session.cards = cards
                         session.index = 0
                         session.done = false
-                        print("🎯 Session updated: cards=\(cards.count)")
+                        Log.debug("Session updated: cards=\(cards.count)", category: .data)
                     }
                     
                     // Another small delay to ensure UI refreshes
@@ -1806,9 +1738,9 @@ struct MCStudyView: View {
                     }
                 }
             } catch {
-                print("❌ MC Generation Error: \(error)")
+                Log.error("MC Generation Error", category: .network, error: error)
                 await MainActor.run {
-                    errorMessage = loc(
+                    errorMessage = Localization.locWithUserPreference(
                         "Failed to generate MC cards: \(error.localizedDescription). Coin has been refunded.",
                         "生成題目失敗：\(error.localizedDescription)。已退還硬幣。"
                     )
@@ -2133,8 +2065,9 @@ struct MCStudyView: View {
                         let generator = UIImpactFeedbackGenerator(style: .medium)
                         generator.impactOccurred()
                         Task {
+                            guard let index = selectedIndex else { return }
                             await submitAnswer(
-                                userChoiceIndex: selectedIndex!,
+                                userChoiceIndex: index,
                                 card: card
                             )
                         }
@@ -2169,27 +2102,6 @@ struct MCStudyView: View {
 //                                .font(.title2)
 //                                .foregroundColor(isCorrect ? .green : .red)
 //                            
-//                            Text(isCorrect ? "Correct!" : "Incorrect")
-//                                .font(.headline)
-//                                .foregroundColor(isCorrect ? .green : .red)
-//                            
-//                            Spacer()
-//                            
-//                            if card.timesSeen > 1 {
-//                                Text("Attempt \(card.timesSeen)")
-//                                    .font(.caption)
-//                                    .padding(.horizontal, 8)
-//                                    .padding(.vertical, 4)
-//                                    .background(Color.secondary.opacity(0.15))
-//                                    .cornerRadius(8)
-//                            }
-//                        }
-//                        .padding()
-//                        .background(
-//                            RoundedRectangle(cornerRadius: 12)
-//                                .fill(isCorrect ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
-//                        )
-                        
                         Divider()
                             .padding(.vertical,1)
                         
@@ -2518,8 +2430,8 @@ struct MCStudyView: View {
         }
         
         func splitIntoOptimalChunks(text: String) -> [String] {
-            let clean = cleanMarkdownForTTS(text)
-            let sentences = linguisticSentenceSplit(clean)
+            let clean = TTSUtils.cleanMarkdownForTTS(text)
+            let sentences = TTSUtils.linguisticSentenceSplit(clean)
             let maxLen = 220
             var finalChunks: [String] = []
             
@@ -2586,7 +2498,7 @@ struct MCStudyView: View {
                 }
                 
                 do {
-                    try await withCoinProtected(actionDescription: "Batch explanations") {
+                    try await CoinProtection.withCoinProtected(actionDescription: "Batch explanations") {
                         var updated = session.cards
                         
                         for i in updated.indices {
@@ -2603,7 +2515,7 @@ struct MCStudyView: View {
                                 )
                                 updated[i].explanation = exp
                             } catch let explainError {
-                                print("Failed to explain card \(i): \(explainError)")
+                                Log.error("Failed to explain card \(i)", category: .data, error: explainError)
                                 // Continue — don't fail whole batch for one card
                             }
                         }
@@ -2618,7 +2530,7 @@ struct MCStudyView: View {
                     }
                 } catch {
                     await MainActor.run {
-                        errorMessage = loc(
+                        errorMessage = Localization.locWithUserPreference(
                             "Batch explanation failed. Coin refunded.",
                             "批量生成解釋失敗，已退還硬幣。"
                         )
@@ -2758,7 +2670,7 @@ struct MCStudyView: View {
             // First: detect if we should force built-in TTS (device or language)
             detectTTSMode(for: text)
             
-            let cleanText = cleanMarkdownForTTS(text)
+            let cleanText = TTSUtils.cleanMarkdownForTTS(text)
             
             var chunks: [String] = []
             
@@ -2783,7 +2695,7 @@ struct MCStudyView: View {
                 }
             } else {
                 // English: linguistic sentence splitting
-                let sentences = linguisticSentenceSplit(cleanText)
+                let sentences = TTSUtils.linguisticSentenceSplit(cleanText)
                 for sentence in sentences {
                     if sentence.count <= 220 {
                         chunks.append(sentence)
@@ -2804,47 +2716,43 @@ struct MCStudyView: View {
             }
             
             ttsChunks = chunks.filter { !$0.isEmpty }
-            print(
-                "📚 TTS prepared \(ttsChunks.count) chunks for: \"\(text.prefix(50))...\""
-            )
+            Log.debug("TTS prepared \(ttsChunks.count) chunks", category: .tts)
         }
         
         func detectTTSMode(for text: String) {
             // Force built-in on unsupported devices
             if !TestAppModel.isSupportedDevice() {
                 ttsUseBuiltInTTS = true
-                print("🔧 TTS: Using built-in (unsupported device)")
+                Log.debug("TTS: Using built-in (unsupported device)", category: .tts)
                 return
             }
             
-            let clean = cleanMarkdownForTTS(text)
-            
-            if hasSignificantChineseContent(clean) {
+            let clean = TTSUtils.cleanMarkdownForTTS(text)
+            let (isChinese, _) = TTSUtils.detectContentLanguage(clean)
+
+            if isChinese {
                 ttsUseBuiltInTTS = true
-                print("🇨🇳 TTS: Using built-in (Chinese content)")
-            } else if isPrimarilyEnglish(clean) {
-                ttsUseBuiltInTTS = false
-                print("🇺🇸 TTS: Using Kokoro (English content)")
+                Log.debug("TTS: Using built-in (Chinese content)", category: .tts)
             } else {
-                ttsUseBuiltInTTS = true
-                print("🔤 TTS: Using built-in (fallback)")
+                ttsUseBuiltInTTS = false
+                Log.debug("TTS: Using Kokoro (English content)", category: .tts)
             }
         }
-        
+
         func speakWithBuiltInTTS(_ text: String) {
-            let (isChinese, _) = detectContentLanguage(text)
+            let (isChinese, _) = TTSUtils.detectContentLanguage(text)
             let locale = isChinese ? "zh-HK" : "en-US"
-            
-            print("🗣️ Built-in TTS (\(locale)): \"\(text.prefix(40))...\"")
-            
-            ttsChineseDelegate = ChineseTTSDelegate { [self] in
+
+            Log.debug("Built-in TTS (\(locale))", category: .tts)
+
+            ttsChineseDelegate = ChineseTTSDelegate {
                 DispatchQueue.main.async {
-                    guard ttsIsPlaying else { return }
-                    if ttsCurrentChunkIndex < ttsChunks.count - 1 {
-                        ttsCurrentChunkIndex += 1
-                        playCurrentTTSChunk()
+                    guard self.ttsIsPlaying else { return }
+                    if self.ttsCurrentChunkIndex < self.ttsChunks.count - 1 {
+                        self.ttsCurrentChunkIndex += 1
+                        self.playCurrentTTSChunk()
                     } else {
-                        stopTTS()
+                        self.stopTTS()
                     }
                 }
             }
@@ -2864,7 +2772,7 @@ struct MCStudyView: View {
                 )
                 try AVAudioSession.sharedInstance().setActive(true)
             } catch {
-                print("❌ AVAudioSession error: $error)")
+                Log.error("AVAudioSession error", category: .audio, error: error)
             }
             
             ttsChineseSynthesizer.speak(utterance)
@@ -2876,6 +2784,7 @@ struct MCStudyView: View {
                 repeats: true
             ) { _ in
                 // Optional: track spoken text if needed for highlighting
+                _ = self
             }
         }
         
@@ -2909,133 +2818,7 @@ struct MCStudyView: View {
                 }
             }
         }
-        
-        func detectContentLanguage(_ text: String) -> (
-            isChinese: Bool, voiceLocale: String
-        ) {
-            let cleanText = cleanMarkdownForTTS(text)
-            
-            let chineseCount = cleanText.unicodeScalars.filter { scalar in
-                (0x4E00...0x9FFF).contains(scalar.value)
-                || (0x3400...0x4DBF).contains(scalar.value)
-                || (0xF900...0xFAFF).contains(scalar.value)
-            }.count
-            
-            let chineseRatio = Double(chineseCount) / Double(cleanText.count)
-            
-            let englishChars = CharacterSet.letters
-            let englishCount = cleanText.unicodeScalars.filter {
-                englishChars.contains($0)
-            }.count
-            let englishRatio = Double(englishCount) / Double(cleanText.count)
-            
-            print(
-                "📊 MCcard TTS: Chinese=\(String(format: "%.1f", chineseRatio*100))%, English=\(String(format: "%.1f", englishRatio*100))%"
-            )
-            
-            if chineseRatio > 0.3 {
-                return (true, "zh-HK")
-            } else if englishRatio > 0.4 {
-                return (false, "en-US")
-            } else {
-                return (false, "en-US")
-            }
-        }
-        
-        func detectTTSLanguagefor(_ text: String) {
-            // CRITICAL: Force built-in TTS on unsupported devices
-            if !TestAppModel.isSupportedDevice() {
-                ttsUseBuiltInTTS = true
-                print("🔧 MCcard TTS: Using Built-in TTS (Unsupported device)")
-                return
-            }
-            
-            let cleanText = cleanMarkdownForTTS(text)
-            
-            if hasSignificantChineseContent(cleanText) {
-                ttsUseBuiltInTTS = true
-                print("🇨🇳 MCcard TTS: Built-in TTS (Chinese detected)")
-            } else if isPrimarilyEnglish(cleanText) {
-                ttsUseBuiltInTTS = false
-                print("🇺🇸 MCcard TTS: Kokoro TTS (English detected)")
-            } else {
-                ttsUseBuiltInTTS = true
-                print("🔤 MCcard TTS: Built-in TTS (Mixed fallback)")
-            }
-        }
-        
-        // MARK: - TTS Helper Functions (copy from NativeMarkdownView2)
-        func hasSignificantChineseContent(_ text: String) -> Bool {
-            let chineseCount = text.unicodeScalars.filter { scalar in
-                (0x4E00...0x9FFF).contains(scalar.value)
-                || (0x3400...0x4DBF).contains(scalar.value)
-                || (0xF900...0xFAFF).contains(scalar.value)
-            }.count
-            let chineseRatio = Double(chineseCount) / Double(text.count)
-            return chineseRatio > 0.3
-        }
-        
-        func isPrimarilyEnglish(_ text: String) -> Bool {
-            let englishChars = CharacterSet.letters
-            let englishCount = text.unicodeScalars.filter {
-                englishChars.contains($0)
-            }.count
-            let totalCount = text.unicodeScalars.count
-            return totalCount > 0
-            ? Double(englishCount) / Double(totalCount) > 0.6 : true
-        }
-        
-        func cleanMarkdownForTTS(_ text: String) -> String {
-            var s = text
-            let replacements = [
-                (
-                    pattern: "[#*`]+", template: "",
-                    options: NSRegularExpression.Options([])
-                ),
-                (pattern: "[1-6]\\.", template: "", options: [.anchorsMatchLines]),
-                (pattern: "-{3,}", template: "", options: [.anchorsMatchLines]),
-                (
-                    pattern: "\\s{3,}", template: " ",
-                    options: NSRegularExpression.Options([])
-                ),
-            ]
-            for replacement in replacements {
-                if let regex = try? NSRegularExpression(
-                    pattern: replacement.pattern,
-                    options: replacement.options
-                ) {
-                    s = regex.stringByReplacingMatches(
-                        in: s,
-                        options: [],
-                        range: NSRange(s.startIndex..., in: s),
-                        withTemplate: replacement.template
-                    )
-                }
-            }
-            return s.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        
-        func linguisticSentenceSplit(_ text: String) -> [String] {
-            guard !text.isEmpty else { return [] }
-            let tagger = NSLinguisticTagger(tagSchemes: [.tokenType], options: 0)
-            tagger.string = text
-            var sentences: [String] = []
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            tagger.enumerateTags(
-                in: range,
-                unit: .sentence,
-                scheme: .tokenType,
-                options: [.omitWhitespace, .omitPunctuation, .joinNames]
-            ) { (tag, sentenceRange, _) in
-                let sentence = (text as NSString).substring(with: sentenceRange)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !sentence.isEmpty {
-                    sentences.append(sentence)
-                }
-            }
-            return sentences.isEmpty ? [text] : sentences
-        }
-        
+
         func safeSplitLongSentence(sentence: String, maxLength: Int)
         -> [String]
         {
@@ -3066,17 +2849,4 @@ struct MCStudyView: View {
             }
             return parts
         }
-    
-    class ChineseTTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
-        let completion: () -> Void
-        init(completion: @escaping () -> Void) {
-            self.completion = completion
-        }
-        func speechSynthesizer(
-            _ synthesizer: AVSpeechSynthesizer,
-            didFinish utterance: AVSpeechUtterance
-        ) {
-            completion()
-        }
-    }
 }

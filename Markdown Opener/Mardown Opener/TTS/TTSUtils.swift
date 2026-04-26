@@ -1,23 +1,25 @@
 import AVFoundation
 import Foundation
 
-final class ChineseTTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
-    let completion: () -> Void
-
-    init(completion: @escaping () -> Void) {
-        self.completion = completion
-    }
-
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        completion()
-    }
-
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        completion()
-    }
-}
-
 struct TTSUtils {
+    static let maxSentenceLength: Int = 220
+
+    final class ChineseTTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
+        let completion: () -> Void
+
+        init(completion: @escaping () -> Void) {
+            self.completion = completion
+        }
+
+        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+            completion()
+        }
+
+        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+            completion()
+        }
+    }
+
     static func detectContentLanguage(_ text: String) -> (isChinese: Bool, voiceLocale: String) {
         let chineseCount = text.unicodeScalars.filter {
             (0x4E00...0x9FFF).contains($0.value) || (0x3400...0x4DBF).contains($0.value) || (0xF900...0xFAFF).contains($0.value)
@@ -66,7 +68,7 @@ struct TTSUtils {
             ("_(.*?)_", "$1", []),
             ("^\\s*[-*+•]\\s+", "", [.anchorsMatchLines]),
             ("^\\s*\\d+\\.\\s+", "", [.anchorsMatchLines]),
-            ("\\[([^\\]]+)\\]\\([^)]+\\)", "$1", [])
+            ("\\n{3,}", "\n\n", [])
         ]
 
         for (pattern, replacement, options) in replacements {
@@ -75,40 +77,74 @@ struct TTSUtils {
             }
         }
 
-        return s
+        if let regex = try? NSRegularExpression(pattern: "\\[([^\\]]+)\\]\\([^)]*\\)", options: []) {
+            s = regex.stringByReplacingMatches(in: s, options: [], range: NSRange(s.startIndex..., in: s), withTemplate: "$1")
+        }
+
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func linguisticSentenceSplit(_ text: String) -> [String] {
-        var sentences: [String] = []
+        guard !text.isEmpty else { return [] }
         let tagger = NSLinguisticTagger(tagSchemes: [.tokenType], options: 0)
         tagger.string = text
+        var sentences: [String] = []
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
 
-        let range = NSRange(text.startIndex..., in: text)
-        var currentSentence = ""
-
-        tagger.enumerateTags(in: range, unit: .word, scheme: .tokenType, options: []) { _, tokenRange, _ in
-            let word = String(text[Range(tokenRange, in: text)!])
-
-            if let punctuationRange = text.range(of: word, range: tokenRange.lowerBound..<text.endIndex),
-               punctuationRange.upperBound < text.endIndex {
-                let afterWord = text[punctuationRange.upperBound]
-                currentSentence += word
-
-                if ".!?".contains(afterWord) {
-                    currentSentence += String(afterWord)
-                    sentences.append(currentSentence.trimmingCharacters(in: .whitespacesAndNewlines))
-                    currentSentence = ""
-                } else {
-                    currentSentence += " "
-                }
+        tagger.enumerateTags(in: range, unit: .sentence, scheme: .tokenType, options: [.omitWhitespace, .omitPunctuation, .joinNames]) { _, sentenceRange, _ in
+            let sentence = (text as NSString).substring(with: sentenceRange)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty && ![".", "…", "•"].contains(sentence) {
+                sentences.append(sentence)
             }
         }
 
-        if !currentSentence.isEmpty {
-            let remaining = String(text[text.index(text.startIndex, offsetBy: sentences.reduce(0) { $0 + $1.count + 1 }, limitedTo: text.endIndex)...])
-            sentences.append(contentsOf: remaining.components(separatedBy: .newlines).filter { !$0.isEmpty })
-        }
-
         return sentences.isEmpty ? [text] : sentences
+    }
+
+    static func safeSplitLongSentence(sentence: String, maxLength: Int = maxSentenceLength) -> [String] {
+        var parts: [String] = []
+        var remaining = sentence
+
+        while remaining.count > maxLength {
+            let limit = remaining.index(remaining.startIndex, offsetBy: maxLength)
+            if let splitPoint = remaining[..<limit].rangeOfCharacter(from: .whitespacesAndNewlines, options: .backwards)?.upperBound {
+                let part = String(remaining[..<splitPoint]).trimmingCharacters(in: .whitespaces)
+                if !part.isEmpty { parts.append(part) }
+                remaining = String(remaining[splitPoint...]).trimmingCharacters(in: .whitespaces)
+            } else {
+                parts.append(String(remaining[..<limit]))
+                remaining = String(remaining[limit...])
+            }
+        }
+        if !remaining.isEmpty { parts.append(remaining) }
+        return parts
+    }
+
+    static func computeTTSChunks(from text: String, isChinese: Bool) -> [String] {
+        let maxLength = maxSentenceLength
+        if isChinese {
+            let punctuation = CharacterSet(charactersIn: "。？！，；：…")
+            let sentences = text.components(separatedBy: punctuation)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { $0.count > 1 }
+            return
+            sentences
+                .flatMap {
+                    safeSplitLongSentence(sentence: $0, maxLength: maxLength)
+                }
+                .filter { $0.count > 3 }
+        } else {
+            let sentences = linguisticSentenceSplit(text)
+            var final: [String] = []
+            for s in sentences {
+                if s.count <= maxLength {
+                    final.append(s)
+                } else {
+                    final.append(contentsOf: safeSplitLongSentence(sentence: s, maxLength: maxLength))
+                }
+            }
+            return final.filter { !$0.isEmpty }
+        }
     }
 }

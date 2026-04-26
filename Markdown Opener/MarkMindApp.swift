@@ -10,7 +10,6 @@ import UIKit
 import UniformTypeIdentifiers
 import MLX
 import FirebaseCore
-import UniformTypeIdentifiers
 import GoogleSignIn
 
 @main
@@ -34,9 +33,8 @@ struct MarkMindApp: App {
     @AppStorage("ads_disabled") var adsDisabled: Bool = false
 
     init() {
-        // Configure MLX GPU limits
-        MLX.GPU.set(cacheLimit: 50 * 1024 * 1024)
-        MLX.GPU.set(memoryLimit: 900 * 1024 * 1024)
+        MLX.GPU.set(cacheLimit: Constants.MLX.gpuCacheLimit)
+        MLX.GPU.set(memoryLimit: Constants.MLX.gpuMemoryLimit)
     }
     
     var body: some Scene {
@@ -169,8 +167,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 // MARK: - Ad IDs
 enum AdIds {
-    static let bannerTop = "ca-app-pub-2445337445676652/1837637959"
-    static let bannerBottom = "ca-app-pub-2445337445676652/7550433284"
+    static let bannerTop = Constants.Ads.bannerTopID
+    static let bannerBottom = Constants.Ads.bannerBottomID
 }
 
 // MARK: - Banner Ad Container (Top)

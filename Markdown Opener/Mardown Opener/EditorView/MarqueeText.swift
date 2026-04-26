@@ -26,7 +26,7 @@ struct MarqueeText: View {
             HStack(spacing: 0) {
                 Text(text)
                     .font(.caption)
-                    .foregroundStyle(foregroundColor!)
+                    .foregroundStyle(foregroundColor ?? .primary)
                     .fixedSize()
                     .background(
                         GeometryReader { proxy in

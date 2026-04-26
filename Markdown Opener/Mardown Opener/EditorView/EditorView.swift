@@ -169,8 +169,8 @@ struct EditorView: View {
             autoSaveTimer?.invalidate()
             autoSaveTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(autoSaveInterval), repeats: false) { _ in
                 Task { @MainActor in
-                    await save()
-                    lastAutoSaveText = text
+                    await self.save()
+                    self.lastAutoSaveText = self.text ?? ""
                 }
             }
         }
@@ -181,13 +181,12 @@ struct EditorView: View {
             }
         }
         .onChange(of: autoSaveInterval) { _, _ in
-            // Restart timer with new interval if there's pending auto-save
             if autoSaveEnabled && autoSaveTimer != nil {
                 autoSaveTimer?.invalidate()
                 autoSaveTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(autoSaveInterval), repeats: false) { _ in
                     Task { @MainActor in
-                        await save()
-                        lastAutoSaveText = text
+                        await self.save()
+                        self.lastAutoSaveText = self.text ?? ""
                     }
                 }
             }

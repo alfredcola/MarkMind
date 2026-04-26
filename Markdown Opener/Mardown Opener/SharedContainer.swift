@@ -8,6 +8,7 @@
 
 // SharedContainer.swift
 import Foundation
+import SwiftUI
 
 struct SharedContainer {
     static let groupIdentifier = "group.com.alfredchen.MarkdownOpener"  // ← Change ONLY if your App Group name is different
@@ -30,7 +31,13 @@ struct SharedContainer {
         let docs = container.appendingPathComponent("Documents", isDirectory: true)
         let flashcards = container.appendingPathComponent("Flashcards", isDirectory: true)
 
-        try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: flashcards, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        } catch {
+        }
+        do {
+            try FileManager.default.createDirectory(at: flashcards, withIntermediateDirectories: true)
+        } catch {
+        }
     }
 }

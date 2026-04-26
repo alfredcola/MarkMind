@@ -22,7 +22,7 @@ final class BackgroundTTSManager: ObservableObject {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetooth])
             try session.setActive(true, options: [])
-            print("BackgroundTTSManager: Audio session configured for background playback")
+            Log.debug("Audio session configured for background playback", category: .audio)
             isSetup = true
 
             if !observersAdded {
@@ -30,7 +30,7 @@ final class BackgroundTTSManager: ObservableObject {
                 observersAdded = true
             }
         } catch {
-            print("BackgroundTTSManager: Failed to setup audio session: \(error)")
+            Log.error("Failed to setup audio session", category: .audio, error: error)
             isSetup = false
         }
     }
@@ -41,8 +41,12 @@ final class BackgroundTTSManager: ObservableObject {
             try session.setActive(false, options: [.notifyOthersOnDeactivation])
             isSetup = false
         } catch {
-            print("BackgroundTTSManager: Failed to deactivate audio session: \(error)")
+            Log.error("Failed to deactivate audio session", category: .audio, error: error)
         }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func setupInterruptionHandling() {
@@ -70,7 +74,7 @@ final class BackgroundTTSManager: ObservableObject {
 
         switch type {
         case .began:
-            print("BackgroundTTSManager: Interruption began")
+            Log.debug("Interruption began", category: .audio)
             DispatchQueue.main.async {
                 self.isPlaying = false
             }
@@ -80,7 +84,7 @@ final class BackgroundTTSManager: ObservableObject {
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
 
             if options.contains(.shouldResume) {
-                print("BackgroundTTSManager: Interruption ended - can resume")
+                Log.debug("Interruption ended - can resume", category: .audio)
                 DispatchQueue.main.async {
                     self.isPlaying = true
                 }
@@ -100,7 +104,7 @@ final class BackgroundTTSManager: ObservableObject {
 
         switch reason {
         case .oldDeviceUnavailable:
-            print("BackgroundTTSManager: Audio output device disconnected")
+            Log.debug("Audio output device disconnected", category: .audio)
             DispatchQueue.main.async {
                 self.isPlaying = false
             }

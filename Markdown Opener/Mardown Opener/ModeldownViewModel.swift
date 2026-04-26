@@ -147,8 +147,14 @@ final class DocumentStore: DocumentRepository, ObservableObject {
     static let shared = DocumentStore()
 
     var documentsURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-            .first!
+        if let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            return url
+        }
+        let paths = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)
+        guard let path = paths.first else {
+            return URL(fileURLWithPath: NSHomeDirectory())
+        }
+        return URL(fileURLWithPath: path)
     }
 
     func listDocuments() throws -> [URL] {
@@ -427,6 +433,7 @@ struct FileSystemItem: Identifiable, Hashable {
     }
 }
 // MARK: - Conversation Store
+@MainActor
 final class ConversationStore: ObservableObject {
     static let shared = ConversationStore()
     @Published private(set) var threads: [URL: [ChatMessage]] = [:]
@@ -467,6 +474,9 @@ final class ConversationStore: ObservableObject {
     func append(_ message: ChatMessage, to doc: URL) {
         var arr = threads[doc] ?? []
         arr.append(message)
+        if arr.count > Constants.Limits.maxChatMessagesPerConversation {
+            arr = Array(arr.suffix(Constants.Limits.maxChatMessagesPerConversation))
+        }
         threads[doc] = arr
         saveToDisk(for: doc)
     }
@@ -533,6 +543,9 @@ final class ConversationStore: ObservableObject {
 
     @Published var savedSelectionChats: [SavedSelectionChat] = [] {
         didSet {
+            if savedSelectionChats.count > Constants.Limits.maxSavedSelectionChats {
+                savedSelectionChats = Array(savedSelectionChats.prefix(Constants.Limits.maxSavedSelectionChats))
+            }
             if let encoded = try? JSONEncoder().encode(savedSelectionChats) {
                 UserDefaults.standard.set(encoded, forKey: savedSelectionChatsKey)
             }
@@ -542,17 +555,17 @@ final class ConversationStore: ObservableObject {
     func saveChat(for docURL: URL, title: String) -> SavedSelectionChat? {
         let currentMessages = messages(for: SelectionChatView.sharedSelectionChatURL)
         guard !currentMessages.isEmpty else { return nil }
-        
+
         let saved = SavedSelectionChat(
             id: UUID(),
             title: title,
             date: Date(),
             messages: currentMessages
         )
-        
+
         savedSelectionChats.append(saved)
         savedSelectionChats.sort { $0.date > $1.date }
-        
+
         return saved
     }
 
@@ -609,6 +622,9 @@ final class ConversationStore: ObservableObject {
 
     @Published var savedDocumentChats: [SavedDocumentChat] = [] {
         didSet {
+            if savedDocumentChats.count > Constants.Limits.maxSavedDocumentChats {
+                savedDocumentChats = Array(savedDocumentChats.prefix(Constants.Limits.maxSavedDocumentChats))
+            }
             if let encoded = try? JSONEncoder().encode(savedDocumentChats) {
                 UserDefaults.standard.set(encoded, forKey: savedDocumentChatsKey)
             }
@@ -700,6 +716,7 @@ final class MCStore: ObservableObject {
 }
 
 // MARK: - Flashcard Persistence
+@MainActor
 final class FlashcardStore: ObservableObject {
     static let shared = FlashcardStore()
     private let store: DocumentStore = .shared
@@ -712,7 +729,7 @@ final class FlashcardStore: ObservableObject {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: "group.com.alfredchen.MarkdownOpener"
         ) else {
-            print("Cannot access App Group")
+            Log.error("Cannot access App Group", category: .widget)
             return
         }
 
@@ -721,9 +738,9 @@ final class FlashcardStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(cards)
             try data.write(to: jsonURL, options: .atomic)
-            print("Saved for widget: \(filename) (\(cards.count) cards)")
+            Log.debug("Saved for widget: \(filename) (\(cards.count) cards)", category: .widget)
         } catch {
-            print("Save failed: \(error)")
+            Log.error("Save failed", category: .widget, error: error)
         }
     }
     
@@ -733,7 +750,7 @@ final class FlashcardStore: ObservableObject {
             guard let containerURL = FileManager.default.containerURL(
                 forSecurityApplicationGroupIdentifier: "group.com.alfredchen.MarkdownOpener"
             ) else {
-                print("Error: Cannot access App Group container")
+                Log.error("Cannot access App Group container", category: .widget)
                 return
             }
 
@@ -742,9 +759,9 @@ final class FlashcardStore: ObservableObject {
             do {
                 let data = try JSONEncoder().encode(cards)
                 try data.write(to: jsonURL)
-                print("✅ Flashcards saved to: \(jsonURL.path)")
+                Log.debug("Flashcards saved to: \(jsonURL.path)", category: .data)
             } catch {
-                print("❌ Failed to save flashcards: \(error)")
+                Log.error("Failed to save flashcards", category: .data, error: error)
             }
         }
 
@@ -842,7 +859,7 @@ enum MiniMaxService {
         apiKey: String,
         messages: [ChatMessage],
         temperature: Double = 0.3,
-        maxTokens: Int = 8192
+        maxTokens: Int = Constants.API.maxTokensStandard
     ) async throws -> (content: String, finishReason: String?) {
         guard let url = URL(string: baseURL) else {
             throw NSError(domain: "MiniMax", code: -1,
@@ -877,12 +894,12 @@ enum MiniMaxService {
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let text = String(data: data, encoding: .utf8) ?? "<no body>"
-            print("❌ MiniMax API Error: \(status) - \(text)")
+            Log.error("MiniMax API Error: \(status) - \(text)", category: .network)
             throw NSError(domain: "MiniMax", code: status,
                           userInfo: [NSLocalizedDescriptionKey: "API Error \(status): \(text)"])
         }
         
-        print("📡 MiniMax Response: \(String(data: data, encoding: .utf8) ?? "nil")")
+        Log.debug("MiniMax Response received", category: .network)
 
         let decoded = try JSONDecoder().decode(ChatResp.self, from: data)
         guard let choice = decoded.choices.first else {
@@ -898,7 +915,7 @@ enum MiniMaxService {
         apiKey: String,
         messages: [ChatMessage],
         temperature: Double = 0.3,
-        maxTokens: Int = 8192
+        maxTokens: Int = Constants.API.maxTokensStandard
     ) async throws -> String {
         var fullContent = ""
         var currentMessages = messages
@@ -1050,27 +1067,28 @@ struct FileIDInfo {
     let filePath: String
 }
 
+@MainActor
 final class FileIDManager {
     static let shared = FileIDManager()
     private let idsKey = "com.markmind.fileids"
     
     private init() {
-        print("🔧 FileIDManager initialized")
+        Log.debug("FileIDManager initialized", category: .fileIO)
     }
     
     // Get or create unique ID for a file URL
     func getFileID(for url: URL) -> String {
-        print("📄 getFileID called for: \(url.lastPathComponent)")
+        Log.debug("getFileID called for: \(url.lastPathComponent)", category: .fileIO)
         
         // First check companion file (most reliable)
         let idFile = companionFileURL(for: url)
-        print("📄 Checking companion file: \(idFile.path)")
+        Log.debug("Checking companion file: \(idFile.path)", category: .fileIO)
         
         if FileManager.default.fileExists(atPath: idFile.path) {
             if let content = try? String(contentsOf: idFile, encoding: .utf8) {
                 let id = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !id.isEmpty {
-                    print("📄 Found existing ID: \(id)")
+                    Log.debug("Found existing ID: \(id)", category: .fileIO)
                     // Update cache
                     cacheIDIfNeeded(id, for: url)
                     return id
@@ -1080,7 +1098,7 @@ final class FileIDManager {
         
         // Generate new ID and store it
         let newID = UUID().uuidString
-        print("📄 Creating new ID: \(newID)")
+        Log.debug("Creating new ID: \(newID)", category: .fileIO)
         storeID(newID, for: url)
         return newID
     }
@@ -1153,25 +1171,25 @@ final class FileIDManager {
                     // No ID, create one
                     let newID = UUID().uuidString
                     storeID(newID, for: fileURL)
-                    print("📄 Assigned ID \(newID) to file: \(fileURL.lastPathComponent)")
+                    Log.debug("Assigned ID \(newID) to file: \(fileURL.lastPathComponent)", category: .fileIO)
                 }
             }
         } catch {
-            print("❌ Failed to migrate file IDs: \(error)")
+            Log.error("Failed to migrate file IDs", category: .fileIO, error: error)
         }
     }
     
     // Store ID for a file URL
     private func storeID(_ id: String, for url: URL) {
-        print("📄 Storing ID \(id) for: \(url.lastPathComponent)")
+        Log.debug("Storing ID \(id) for: \(url.lastPathComponent)", category: .fileIO)
         
         // Store in companion file
         let idFile = companionFileURL(for: url)
         do {
             try id.write(to: idFile, atomically: true, encoding: .utf8)
-            print("📄 Written to companion file: \(idFile.path)")
+            Log.debug("Written to companion file: \(idFile.path)", category: .fileIO)
         } catch {
-            print("❌ Failed to write companion file: \(error)")
+            Log.error("Failed to write companion file", category: .fileIO, error: error)
         }
         
         // Also cache it
@@ -1182,7 +1200,7 @@ final class FileIDManager {
     private func cacheIDIfNeeded(_ id: String, for url: URL) {
         let allIDs = getAllIDs()
         if allIDs[url.absoluteString] == nil {
-            print("📄 Caching ID for: \(url.lastPathComponent)")
+            Log.debug("Caching ID for: \(url.lastPathComponent)", category: .fileIO)
             var newIDs = allIDs
             newIDs[url.absoluteString] = id
             saveAllIDs(newIDs)
@@ -1192,15 +1210,15 @@ final class FileIDManager {
     // Get all cached IDs
     private func getAllIDs() -> [String: String] {
         guard let data = UserDefaults.standard.data(forKey: idsKey) else {
-            print("📄 No cached IDs found")
+            Log.debug("No cached IDs found", category: .fileIO)
             return [:]
         }
         do {
             let ids = try JSONDecoder().decode([String: String].self, from: data)
-            print("📄 Loaded \(ids.count) cached IDs")
+            Log.debug("Loaded \(ids.count) cached IDs", category: .fileIO)
             return ids
         } catch {
-            print("❌ Failed to decode cached IDs: \(error)")
+            Log.error("Failed to decode cached IDs", category: .fileIO, error: error)
             return [:]
         }
     }
@@ -1210,15 +1228,15 @@ final class FileIDManager {
         do {
             let data = try JSONEncoder().encode(ids)
             UserDefaults.standard.set(data, forKey: idsKey)
-            print("📄 Saved \(ids.count) IDs to cache")
+            Log.debug("Saved \(ids.count) IDs to cache", category: .fileIO)
         } catch {
-            print("❌ Failed to save IDs: \(error)")
+            Log.error("Failed to save IDs", category: .fileIO, error: error)
         }
     }
     
     // Remove ID for a file URL
     func removeID(for url: URL) {
-        print("📄 Removing ID for: \(url.lastPathComponent)")
+        Log.debug("Removing ID for: \(url.lastPathComponent)", category: .fileIO)
         let allIDs = getAllIDs()
         var newIDs = allIDs
         newIDs.removeValue(forKey: url.absoluteString)

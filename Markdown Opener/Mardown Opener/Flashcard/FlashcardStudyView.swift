@@ -55,18 +55,7 @@ struct FlashcardStudyView: View {
     @EnvironmentObject var model: TestAppModel  // Same as in MCStudyView
     @ObservedObject private var settingsVM = MultiSettingsViewModel.shared
 
-    private class ChineseTTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
-        let completion: () -> Void
-        init(completion: @escaping () -> Void) {
-            self.completion = completion
-        }
-        func speechSynthesizer(
-            _ synthesizer: AVSpeechSynthesizer,
-            didFinish utterance: AVSpeechUtterance
-        ) {
-            completion()
-        }
-    }
+    private typealias ChineseTTSDelegate = TTSUtils.ChineseTTSDelegate
 
     @ObservedObject private var adManager = InterstitialAdManager.shared
     @State private var ttsIsPlaying = false
@@ -84,11 +73,11 @@ struct FlashcardStudyView: View {
     private func startTTS(for text: String) {
         guard settingsVM.ttsEnabled, !text.isEmpty else { return }
 
-        let cleanText = cleanMarkdownForTTS(text)
-        let (isChinese, _) = detectContentLanguage(cleanText)
+        let cleanText = TTSUtils.cleanMarkdownForTTS(text)
+        let (isChinese, _) = TTSUtils.detectContentLanguage(cleanText)
         ttsUseBuiltInTTS = isChinese || !TestAppModel.isSupportedDevice()
 
-        let chunks = computeTTSChunks(from: cleanText, isChinese: isChinese)
+        let chunks = TTSUtils.computeTTSChunks(from: cleanText, isChinese: isChinese)
         guard !chunks.isEmpty else { return }
 
         ttsChunks = chunks
@@ -96,40 +85,6 @@ struct FlashcardStudyView: View {
         ttsIsPlaying = true
 
         playCurrentTTSChunk()
-    }
-
-    private func computeTTSChunks(from text: String, isChinese: Bool)
-        -> [String]
-    {
-        let maxLength = 220
-        if isChinese {
-            let punctuation = CharacterSet(charactersIn: "。？！，；：…")
-            let sentences = text.components(separatedBy: punctuation)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { $0.count > 1 }
-            return
-                sentences
-                .flatMap {
-                    safeSplitLongSentence(sentence: $0, maxLength: maxLength)
-                }
-                .filter { $0.count > 3 }
-        } else {
-            let sentences = linguisticSentenceSplit(text)
-            var final: [String] = []
-            for s in sentences {
-                if s.count <= maxLength {
-                    final.append(s)
-                } else {
-                    final.append(
-                        contentsOf: safeSplitLongSentence(
-                            sentence: s,
-                            maxLength: maxLength
-                        )
-                    )
-                }
-            }
-            return final.filter { !$0.isEmpty }
-        }
     }
 
     private func playCurrentTTSChunk() {
@@ -234,10 +189,10 @@ struct FlashcardStudyView: View {
     }
 
     private func playChineseTTS(_ text: String) {
-        let (isChinese, _) = detectContentLanguage(text)
+        let (isChinese, _) = TTSUtils.detectContentLanguage(text)
         let locale = isChinese ? "zh-HK" : "en-US"
 
-        ttsChineseDelegate = ChineseTTSDelegate {
+        ttsChineseDelegate = TTSUtils.ChineseTTSDelegate {
             DispatchQueue.main.async {
                 self.handleTTSChunkComplete()
             }
@@ -252,87 +207,6 @@ struct FlashcardStudyView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             self.ttsChineseSynthesizer.speak(utterance)
         }
-    }
-    private func detectContentLanguage(_ text: String) -> (
-        isChinese: Bool, voiceLocale: String
-    ) {
-        let cleanText = cleanMarkdownForTTS(text)
-
-        let chineseCount = cleanText.unicodeScalars.filter { scalar in
-            (0x4E00...0x9FFF).contains(scalar.value)
-                || (0x3400...0x4DBF).contains(scalar.value)
-                || (0xF900...0xFAFF).contains(scalar.value)
-        }.count
-
-        let chineseRatio = Double(chineseCount) / Double(cleanText.count)
-
-        let englishChars = CharacterSet.letters
-        let englishCount = cleanText.unicodeScalars.filter {
-            englishChars.contains($0)
-        }.count
-        let englishRatio = Double(englishCount) / Double(cleanText.count)
-
-        print(
-            "📊 MCcard TTS: Chinese=\(String(format: "%.1f", chineseRatio*100))%, English=\(String(format: "%.1f", englishRatio*100))%"
-        )
-
-        if chineseRatio > 0.3 {
-            return (true, "zh-HK")
-        } else if englishRatio > 0.4 {
-            return (false, "en-US")
-        } else {
-            return (false, "en-US")
-        }
-    }
-    private func cleanMarkdownForTTS(_ text: String) -> String {
-        var s = text
-        let replacements = [
-            (
-                pattern: "[#*`]+", template: "",
-                options: NSRegularExpression.Options([])
-            ),
-            (pattern: "[1-6]\\.", template: "", options: [.anchorsMatchLines]),
-            (pattern: "-{3,}", template: "", options: [.anchorsMatchLines]),
-            (
-                pattern: "\\s{3,}", template: " ",
-                options: NSRegularExpression.Options([])
-            ),
-        ]
-        for replacement in replacements {
-            if let regex = try? NSRegularExpression(
-                pattern: replacement.pattern,
-                options: replacement.options
-            ) {
-                s = regex.stringByReplacingMatches(
-                    in: s,
-                    options: [],
-                    range: NSRange(s.startIndex..., in: s),
-                    withTemplate: replacement.template
-                )
-            }
-        }
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func linguisticSentenceSplit(_ text: String) -> [String] {
-        guard !text.isEmpty else { return [] }
-        let tagger = NSLinguisticTagger(tagSchemes: [.tokenType], options: 0)
-        tagger.string = text
-        var sentences: [String] = []
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        tagger.enumerateTags(
-            in: range,
-            unit: .sentence,
-            scheme: .tokenType,
-            options: [.omitWhitespace, .omitPunctuation, .joinNames]
-        ) { (tag, sentenceRange, _) in
-            let sentence = (text as NSString).substring(with: sentenceRange)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sentence.isEmpty {
-                sentences.append(sentence)
-            }
-        }
-        return sentences.isEmpty ? [text] : sentences
     }
 
     // MARK: - New Feature: Card Difficulty Rating
@@ -843,7 +717,7 @@ struct FlashcardStudyView: View {
                         options: [.notifyOthersOnDeactivation]
                     )
                 } catch {
-                    print("Audio session setup failed: \(error)")
+                    Log.error("Audio session setup failed", category: .audio, error: error)
                 }
 
                 // Pre-warm synthesizer more effectively
@@ -854,10 +728,10 @@ struct FlashcardStudyView: View {
                 ttsChineseSynthesizer.speak(warmUpUtterance)  // This primes the engine better
             }
         }
-        .onChange(of: isGenerating) {
-            UIApplication.shared.isIdleTimerDisabled = isGenerating
+        .onChange(of: isGenerating) { _, newValue in
+            UIApplication.shared.isIdleTimerDisabled = newValue
         }
-        .onChange(of: session.index) { _ in
+        .onChange(of: session.index) { _, _ in
             currentCardStartTime = Date()
         }
         .onDisappear {
@@ -902,8 +776,13 @@ struct FlashcardStudyView: View {
         )!
 
         let jsonURL = containerURL.appendingPathComponent(widgetFilename)
-        let data = try! JSONEncoder().encode(session.cards)
-        try! data.write(to: jsonURL)
+        do {
+            let data = try JSONEncoder().encode(session.cards)
+            try data.write(to: jsonURL)
+        } catch {
+            Log.error("Failed to save widget data", category: .widget, error: error)
+            return
+        }
 
         // THIS IS THE KEY LINE:
         UserDefaults(suiteName: "group.com.alfredchen.MarkdownOpener")?.set(
@@ -1118,9 +997,7 @@ struct FlashcardStudyView: View {
         let savedCards = flashcardStore.loadFlashcards(for: filename)
         if !savedCards.isEmpty {
             session.cards = savedCards
-            print(
-                "Loaded \(savedCards.count) existing flashcards for \(filename)"
-            )
+            Log.debug("Loaded \(savedCards.count) existing flashcards for \(filename)", category: .data)
         }
     }
 
@@ -1843,15 +1720,6 @@ struct FlashcardStudyView: View {
         }
     }
     
-    func loc(_ en: String, _ zh: String) -> String {
-        let aiReplyLanguageRaw =
-            UserDefaults.standard.string(forKey: "ai_reply_language")
-            ?? AIReplyLanguage.english.rawValue
-        let aiReplyLanguage =
-            AIReplyLanguage(rawValue: aiReplyLanguageRaw) ?? .english
-        return aiReplyLanguage == .traditionalChinese ? zh : en
-    }
-    
     @MainActor
     private func deductCoinIfPossible() -> Bool {
         let success = RewardedAdManager.shared.spendCoins(1)
@@ -1863,12 +1731,12 @@ struct FlashcardStudyView: View {
         let isSubscribed = SubscriptionManager.shared.isSubscribed
         
         if isSubscribed {
-            errorMessage = loc(
+            errorMessage = Localization.locWithUserPreference(
                 "Not enough coins. Buy coins, or watch an ad to earn more!",
                 "硬幣不足。購買硬幣，或觀看廣告賺取更多！"
             )
         } else {
-            errorMessage = loc(
+            errorMessage = Localization.locWithUserPreference(
                 "Not enough coins. Subscribe to Premium for 100 coins/month (ad-free!), buy coins, or watch an ad to earn more!",
                 "硬幣不足。訂閱 Premium 每月獲得 100 硬幣（無廣告！）、購買硬幣，或觀看廣告賺取更多！"
             )
@@ -1876,43 +1744,13 @@ struct FlashcardStudyView: View {
         
         // Haptic feedback
         UINotificationFeedbackGenerator().notificationOccurred(.error)
-        
+
         return false
     }
 
-    @MainActor
-    private func withCoinProtected<T>(
-        actionDescription: String = "API operation",
-        operation: () async throws -> T
-    ) async throws -> T {
-        // Attempt to deduct coin first
-        let deducted = deductCoinIfPossible()
-        guard deducted else {
-            throw NSError(domain: "CoinError", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: loc(
-                    "Not enough coins to perform this action.",
-                    "硬幣不足，無法執行此操作。"
-                )
-            ])
-        }
-
-        do {
-            let result = try await operation()
-            // Success → coin stays spent
-            return result
-        } catch {
-            print("❌ \(actionDescription) failed → refunding 1 coin. Error: \(error)")
-            RewardedAdManager.shared.earnCoin()
-
-            throw error
-        }
-    }
-    
     private func generateFlashcards() async {
-        // No early deduct here anymore — withCoinProtected handles it
-
         do {
-            try await withCoinProtected(actionDescription: "Flashcard generation") {
+            try await CoinProtection.withCoinProtected(actionDescription: "Flashcard generation") {
                 let aiReplyLanguageRaw = UserDefaults.standard.string(forKey: "ai_reply_language") ?? AIReplyLanguage.english.rawValue
                 let aiReplyLanguage = AIReplyLanguage(rawValue: aiReplyLanguageRaw) ?? .english
                 let isChinese = aiReplyLanguage == .traditionalChinese
@@ -1997,17 +1835,17 @@ struct FlashcardStudyView: View {
                     temperature: 0.1
                 )
 
-                print("📄 Raw response (first 500): \(String(response.prefix(500)))")
+                Log.debug("Raw response received from MiniMax", category: .network)
                 
                 let parsed = parseClassicFlashcards(from: response)
-                print("✅ Parsed \(parsed.count) flashcards")
+                Log.debug("Parsed \(parsed.count) flashcards", category: .data)
 
                 // Force UI update with delay
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 
                 await MainActor.run {
                     session.cards = parsed
-                    print("🎯 Flashcard Session updated: cards=\(parsed.count)")
+                    Log.debug("Flashcard Session updated: cards=\(parsed.count)", category: .data)
                 }
                 
                 // Another small delay
@@ -2018,9 +1856,9 @@ struct FlashcardStudyView: View {
                 }
             }
         } catch {
-            print("❌ Flashcard Generation Error: \(error)")
+            Log.error("Flashcard Generation Error", category: .network, error: error)
             await MainActor.run {
-                errorMessage = loc(
+                errorMessage = Localization.locWithUserPreference(
                     "Failed to generate flashcards: \(error.localizedDescription). Coin has been refunded.",
                     "生成閃卡失敗：\(error.localizedDescription)。已退還硬幣。"
                 )

@@ -67,21 +67,13 @@ struct InAppFilePicker: View {
         var id: String { rawValue }
     }
 
-    private struct FileInfo: Identifiable, Hashable {
-        let id = UUID()
-        let url: URL
-        let size: Int64
-        let modified: Date
-        let ext: String
-    }
-
     var body: some View {
         NavigationView {
             VStack {
                 // Tab Picker
                 Picker("Source", selection: $selectedTab) {
-                    Text(loc("In-App Files", "應用內檔案")).tag(0)
-                    Text(loc("File Explorer", "檔案瀏覽器")).tag(1)
+                    Text(Localization.locWithUserPreference("In-App Files", "應用內檔案")).tag(0)
+                    Text(Localization.locWithUserPreference("File Explorer", "檔案瀏覽器")).tag(1)
                 }
                 .pickerStyle(.segmented)
                 .padding()
@@ -92,19 +84,19 @@ struct InAppFilePicker: View {
                     fileExplorerView
                 }
             }
-            .navigationTitle(loc("Select Files (Max 10 files)", "選擇檔案 (最多10個檔案)"))
+            .navigationTitle(Localization.locWithUserPreference("Select Files (Max 10 files)", "選擇檔案 (最多10個檔案)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(loc("Cancel", "取消")) { dismiss() }
+                    Button(Localization.locWithUserPreference("Cancel", "取消")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(loc("Done", "完成")) { dismiss() }
+                    Button(Localization.locWithUserPreference("Done", "完成")) { dismiss() }
                 }
             }
             .alert(isPresented: .constant(errorMessage != nil)) {
                 Alert(
-                    title: Text(loc("Error", "錯誤")),
+                    title: Text(Localization.locWithUserPreference("Error", "錯誤")),
                     message: Text(errorMessage ?? ""),
                     dismissButton: .default(Text("OK")) { errorMessage = nil }
                 )
@@ -322,7 +314,7 @@ struct InAppFilePicker: View {
                         }
                     }
 
-                    Text("\(byteCount(info.size)) • \(friendlyDate(info.modified))")
+                    Text("\(FormattingHelpers.byteCount(info.size)) • \(FormattingHelpers.friendlyDate(info.modified))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -438,7 +430,7 @@ struct InAppFilePicker: View {
                 $0 != docURL
             }
         } catch {
-            errorMessage = loc(
+            errorMessage = Localization.locWithUserPreference(
                 "Failed to load files: \(error.localizedDescription)",
                 "無法載入檔案：\(error.localizedDescription)"
             )
@@ -453,7 +445,7 @@ struct InAppFilePicker: View {
                 let data = try documentStore.load(url)
                 let content =
                     data.text.isEmpty && url.pathExtension.lowercased() == "ppt"
-                    ? loc(
+                    ? Localization.locWithUserPreference(
                         "Legacy .ppt files are not supported for text extraction",
                         "舊版 .ppt 檔案不支援文字提取"
                     )
@@ -462,26 +454,17 @@ struct InAppFilePicker: View {
             } catch {
                 let message =
                     url.pathExtension.lowercased() == "ppt"
-                    ? loc(
+                    ? Localization.locWithUserPreference(
                         "Legacy .ppt files are not supported: \(error.localizedDescription)",
                         "舊版 .ppt 檔案不支援：\(error.localizedDescription)"
                     )
-                    : loc(
+                    : Localization.locWithUserPreference(
                         "Failed to load \(url.lastPathComponent): \(error.localizedDescription)",
                         "無法載入 \(url.lastPathComponent)：\(error.localizedDescription)"
                     )
                 errorMessage = message
             }
         }
-    }
-
-    private func loc(_ en: String, _ zh: String) -> String {
-        let aiReplyLanguageRaw =
-            UserDefaults.standard.string(forKey: "ai_reply_language")
-            ?? AIReplyLanguage.english.rawValue
-        let aiReplyLanguage =
-            AIReplyLanguage(rawValue: aiReplyLanguageRaw) ?? .english
-        return aiReplyLanguage == .traditionalChinese ? zh : en
     }
 
     private func group(for ext: String) -> FileGroup {
@@ -569,28 +552,8 @@ struct InAppFilePicker: View {
         }
     }
 
-    private func byteCount(_ bytes: Int64) -> String {
-        let fmt = ByteCountFormatter()
-        fmt.allowedUnits = [.useKB, .useMB]
-        fmt.countStyle = .file
-        return fmt.string(fromByteCount: bytes)
-    }
-
-    private func friendlyDate(_ date: Date) -> String {
-        let rel = RelativeDateTimeFormatter()
-        rel.unitsStyle = .short
-        let cal = Calendar.current
-        if cal.isDateInToday(date) || cal.isDateInYesterday(date) {
-            return rel.localizedString(for: date, relativeTo: Date())
-        }
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f.string(from: date)
-    }
-
     private func metaLine(_ info: FileInfo) -> String {
-        "\(byteCount(info.size))  \(friendlyDate(info.modified))"
+        "\(FormattingHelpers.byteCount(info.size))  \(FormattingHelpers.friendlyDate(info.modified))"
     }
 
     private func share(url: URL) {
@@ -632,15 +595,6 @@ struct FileExplorerView: UIViewControllerRepresentable {
         Coordinator(parent: self)
     }
 
-    func loc(_ en: String, _ zh: String) -> String {
-        let aiReplyLanguageRaw =
-            UserDefaults.standard.string(forKey: "ai_reply_language")
-            ?? AIReplyLanguage.english.rawValue
-        let aiReplyLanguage =
-            AIReplyLanguage(rawValue: aiReplyLanguageRaw) ?? .english
-        return aiReplyLanguage == .traditionalChinese ? zh : en
-    }
-
     class Coordinator: NSObject, UIDocumentPickerDelegate {
         let parent: FileExplorerView
         let documentStore = DocumentStore.shared
@@ -655,7 +609,7 @@ struct FileExplorerView: UIViewControllerRepresentable {
         ) {
             for url in urls {
                 guard parent.selectedFiles.count < 10 else {
-                    parent.errorMessage = parent.loc(
+                    parent.errorMessage = Localization.locWithUserPreference(
                         "Maximum 10 files can be selected",
                         "最多只能選擇10個檔案"
                     )
@@ -682,7 +636,7 @@ struct FileExplorerView: UIViewControllerRepresentable {
                             && (url.pathExtension.lowercased() == "ppt"
                                 || url.pathExtension.lowercased() == "pptx"
                                     && data.text.isEmpty)
-                        ? parent.loc(
+                        ? Localization.locWithUserPreference(
                             "This file type may have limited text extraction.",
                             "此檔案類型可能文字提取有限。"
                         )
@@ -693,12 +647,12 @@ struct FileExplorerView: UIViewControllerRepresentable {
                 } catch {
                     let message: String
                     if url.pathExtension.lowercased() == "ppt" {
-                        message = parent.loc(
+                        message = Localization.locWithUserPreference(
                             "Legacy .ppt files are not supported: \(error.localizedDescription)",
                             "舊版 .ppt 檔案不支援：\(error.localizedDescription)"
                         )
                     } else {
-                        message = parent.loc(
+                        message = Localization.locWithUserPreference(
                             "Failed to load \(url.lastPathComponent): \(error.localizedDescription)",
                             "無法載入 \(url.lastPathComponent)：\(error.localizedDescription)"
                         )

@@ -1441,7 +1441,7 @@ struct EditorViewBody: View {
 
     @MainActor
     private func batchDelete(_ urls: Set<URL>) async {
-        print("Deleting \(urls.count) files...")
+        Log.debug("Deleting \(urls.count) files...", category: .fileIO)
         for url in urls {
             await onDelete(url)
         }
@@ -1463,26 +1463,6 @@ struct EditorViewBody: View {
                 ext: url.pathExtension.lowercased()
             )
         } catch { return nil }
-    }
-
-    private func byteCount(_ bytes: Int64) -> String {
-        let fmt = ByteCountFormatter()
-        fmt.allowedUnits = [.useKB, .useMB]
-        fmt.countStyle = .file
-        return fmt.string(fromByteCount: bytes)
-    }
-
-    private func friendlyDate(_ date: Date) -> String {
-        let rel = RelativeDateTimeFormatter()
-        rel.unitsStyle = .short
-        let cal = Calendar.current
-        if cal.isDateInToday(date) || cal.isDateInYesterday(date) {
-            return rel.localizedString(for: date, relativeTo: Date())
-        }
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f.string(from: date)
     }
 
     private func iconName(for url: URL) -> String {
@@ -1549,7 +1529,7 @@ struct EditorViewBody: View {
                     
                     HStack(spacing: 4) {
                         Text(
-                            "\(byteCount(info.size)) • \(friendlyDate(info.modified))"
+                            "\(FormattingHelpers.byteCount(info.size)) • \(FormattingHelpers.friendlyDate(info.modified))"
                         )
                         .font(.caption2)
                         .foregroundStyle(.secondary)

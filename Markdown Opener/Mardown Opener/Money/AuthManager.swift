@@ -46,7 +46,7 @@ final class AuthManager: ObservableObject {
     // MARK: - Google Sign In
     func signInWithGoogle() {
         guard let clientID = FirebaseApp.app()?.options.clientID else {
-            print("Missing Firebase clientID")
+            Log.error("Missing Firebase clientID", category: .general)
             return
         }
 
@@ -61,7 +61,7 @@ final class AuthManager: ObservableObject {
             let rootVC = windowScene.windows
                 .first(where: { $0.isKeyWindow })?.rootViewController
         else {
-            print("Unable to find root view controller")
+            Log.error("Unable to find root view controller", category: .general)
             return
         }
 
@@ -70,14 +70,14 @@ final class AuthManager: ObservableObject {
             guard let self = self else { return }
 
             if let error = error {
-                print("Google Sign-In error: \(error.localizedDescription)")
+                Log.error("Google Sign-In error", category: .general, error: error)
                 return
             }
 
             guard let user = result?.user,
                 let idToken = user.idToken?.tokenString
             else {
-                print("Google Sign-In: missing token")
+                Log.error("Google Sign-In: missing token", category: .general)
                 return
             }
 
@@ -89,12 +89,10 @@ final class AuthManager: ObservableObject {
 
             Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
-                    print(
-                        "Firebase sign-in error: \(error.localizedDescription)"
-                    )
+                    Log.error("Firebase sign-in error", category: .general, error: error)
                     return
                 }
-                print("Signed in with Google successfully")
+                Log.info("Signed in with Google successfully", category: .general)
                 self.loadOrMergeCoins()
             }
         }
@@ -104,14 +102,14 @@ final class AuthManager: ObservableObject {
         do {
             try Auth.auth().signOut()
             GIDSignIn.sharedInstance.signOut()
-            print("Signed out successfully")
+            Log.info("Signed out successfully", category: .general)
 
             stopUserSettingsListener()
 
             RewardedAdManager.shared.setCoinsDirectly(0)
             RewardedAdManager.shared.resetDailyRewardClaim()
         } catch {
-            print("Sign out error: \(error.localizedDescription)")
+            Log.error("Sign out error", category: .general, error: error)
         }
     }
 
@@ -126,7 +124,7 @@ final class AuthManager: ObservableObject {
             guard let self = self else { return }
 
             if let error = error {
-                print("Error loading coins: \(error.localizedDescription)")
+                Log.error("Error loading coins", category: .general, error: error)
                 return
             }
 
@@ -143,9 +141,8 @@ final class AuthManager: ObservableObject {
                 }
             } else {
                 // First time ever → upload local to cloud
-                print(
-                    "First time: Uploading local coins \(localCoins) to cloud"
-                )
+                Log.info(
+                    "First time: Uploading local coins \(localCoins) to cloud", category: .general)
                 RewardedAdManager.shared.coins = localCoins
                 AuthManager.shared.saveCoins(localCoins)
             }
@@ -179,7 +176,7 @@ final class AuthManager: ObservableObject {
                 guard let self = self else { return }
 
                 if let error = error {
-                    print("Coins listener error: \(error.localizedDescription)")
+                    Log.error("Coins listener error", category: .general, error: error)
                     return
                 }
 
@@ -219,9 +216,8 @@ final class AuthManager: ObservableObject {
             guard let self = self else { return }
 
             if let error = error {
-                print(
-                    "Error loading manually_adsDisabled: \(error.localizedDescription)"
-                )
+                Log.error(
+                    "Error loading manually_adsDisabled: \(error.localizedDescription)", category: .general)
                 return
             }
 
@@ -244,9 +240,8 @@ final class AuthManager: ObservableObject {
                 }
             } else {
                 // First time: upload local value to cloud
-                print(
-                    "First time sync: uploading manually_adsDisabled \(localValue) to cloud"
-                )
+                Log.info(
+                    "First time sync: uploading manually_adsDisabled \(localValue) to cloud", category: .general)
                 self.manuallyAdsDisabled = localValue
                 MultiSettingsViewModel.shared.manually_adsDisabled = localValue
                 self.saveManuallyAdsDisabled(localValue)
@@ -282,9 +277,8 @@ final class AuthManager: ObservableObject {
                 guard let self = self else { return }
 
                 if let error = error {
-                    print(
-                        "User settings listener error: \(error.localizedDescription)"
-                    )
+                Log.error(
+                    "User settings listener error: \(error.localizedDescription)", category: .general)
                     return
                 }
 

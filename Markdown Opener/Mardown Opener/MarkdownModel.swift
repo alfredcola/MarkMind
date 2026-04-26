@@ -292,7 +292,12 @@ enum FileExporter {
     static func tempFile(named name: String, content: String) -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(name)
-        try? content.data(using: .utf8)?.write(to: url, options: .atomic)
+        if let data = content.data(using: .utf8) {
+            do {
+                try data.write(to: url, options: .atomic)
+            } catch {
+            }
+        }
         return url
     }
 

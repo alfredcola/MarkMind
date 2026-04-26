@@ -42,14 +42,15 @@ struct WebMarkdownView: UIViewRepresentable {
         
         // Listen button (unchanged)
         let button = UIButton(configuration: .filled(), primaryAction: nil)
-        var cfg = button.configuration!
-        cfg.baseBackgroundColor = .systemBlue.withAlphaComponent(0.75)
-        cfg.baseForegroundColor = .white
-        cfg.image = UIImage(systemName: "headphones")
-        cfg.imagePadding = 8
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 18, bottom: 11, trailing: 18)
-        cfg.cornerStyle = .capsule
-        button.configuration = cfg
+        if var cfg = button.configuration {
+            cfg.baseBackgroundColor = .systemBlue.withAlphaComponent(0.75)
+            cfg.baseForegroundColor = .white
+            cfg.image = UIImage(systemName: "headphones")
+            cfg.imagePadding = 8
+            cfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 18, bottom: 11, trailing: 18)
+            cfg.cornerStyle = .capsule
+            button.configuration = cfg
+        }
         
         button.layer.shadowOpacity = 0.35
         button.layer.shadowRadius = 12
@@ -63,16 +64,17 @@ struct WebMarkdownView: UIViewRepresentable {
         
         // NEW: Ask AI floating button
         let askButton = UIButton(configuration: .filled(), primaryAction: nil)
-        var askCfg = askButton.configuration!
-        askCfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.85)
-        askCfg.baseForegroundColor = .white
-        askCfg.title = "Ask AI"
-        askCfg.image = UIImage(systemName: "brain.head.profile")
-        askCfg.imagePlacement = .leading
-        askCfg.imagePadding = 8
-        askCfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 16, bottom: 11, trailing: 16)
-        askCfg.cornerStyle = .capsule
-        askButton.configuration = askCfg
+        if var askCfg = askButton.configuration {
+            askCfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.85)
+            askCfg.baseForegroundColor = .white
+            askCfg.title = "Ask AI"
+            askCfg.image = UIImage(systemName: "brain.head.profile")
+            askCfg.imagePlacement = .leading
+            askCfg.imagePadding = 8
+            askCfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 16, bottom: 11, trailing: 16)
+            askCfg.cornerStyle = .capsule
+            askButton.configuration = askCfg
+        }
         
         askButton.layer.shadowOpacity = 0.4
         askButton.layer.shadowRadius = 10
@@ -212,13 +214,13 @@ struct WebMarkdownView: UIViewRepresentable {
             let trimmedForCheck = rawSelectedText.trimmingCharacters(in: .whitespacesAndNewlines)
             
             guard !trimmedForCheck.isEmpty else {
-                print("⚠️ [WebMarkdownView] Ask AI tapped but selection is effectively empty")
+                Log.warning("[WebMarkdownView] Ask AI tapped but selection is effectively empty", category: .tts)
                 hideAskButton()
                 clearSelection()
                 return
             }
             
-            print("✅ [WebMarkdownView] Ask AI tapped → captured text (\(rawSelectedText.count) raw chars)")
+            Log.debug("[WebMarkdownView] Ask AI tapped → captured text (\(rawSelectedText.count) raw chars)", category: .tts)
             
             stopMonitoringSelection()
             parent.onAskAIAboutSelection(rawSelectedText)
@@ -273,9 +275,8 @@ struct WebMarkdownView: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.webView?.evaluateJavaScript(js, completionHandler: { _, error in
                     if let error = error {
-                        print("⚠️ Scroll restore failed: \(error)")
                     } else {
-                        print("✅ Restored scroll position to \(self.lastSavedScrollY)")
+                        Log.debug("Restored scroll position to \(self.lastSavedScrollY)", category: .tts)
                     }
                 })
             }

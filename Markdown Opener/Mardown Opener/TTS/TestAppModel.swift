@@ -68,13 +68,13 @@ final class TestAppModel: ObservableObject {
     init() {
         // Check device support first
         guard TestAppModel.isSupportedDevice() else {
-            print("Device not supported - requires A16 or newer.")
+            Log.error("Device not supported - requires A16 or newer.", category: .tts)
             return
         }
 
         // Now check user preference
         guard settings.ttsEnabled else {
-            print("TTS disabled by user preference.")
+            Log.info("TTS disabled by user preference.", category: .tts)
             return
         }
 
@@ -87,7 +87,7 @@ final class TestAppModel: ObservableObject {
     private func setupTTS() {
         // 1. 加載模型
         guard let modelPath = Bundle.main.url(forResource: "kokoro-v1_0", withExtension: "safetensors") else {
-            print("Failed to find kokoro-v1_0.safetensors in bundle")
+            Log.error("Failed to find kokoro-v1_0.safetensors in bundle", category: .tts)
             return
         }
 
@@ -107,12 +107,12 @@ final class TestAppModel: ObservableObject {
 
         // 3. 加載聲音檔案
         guard let voiceFilePath = Bundle.main.url(forResource: "voices", withExtension: "npz") else {
-            print("Failed to find voices.npz in bundle")
+            Log.error("Failed to find voices.npz in bundle", category: .tts)
             return
         }
 
         guard let loadedVoices = NpyzReader.read(fileFromPath: voiceFilePath) else {
-            print("Failed to load voices.npz")
+            Log.error("Failed to load voices.npz", category: .tts)
             return
         }
 
@@ -137,7 +137,7 @@ final class TestAppModel: ObservableObject {
             try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true, options: [])
         } catch {
-            print("Failed to configure AVAudioSession: \(error.localizedDescription)")
+            Log.error("Failed to configure AVAudioSession", category: .audio, error: error)
         }
         #endif
     }
@@ -146,7 +146,7 @@ final class TestAppModel: ObservableObject {
 
     func say(text: String, completion: @escaping () -> Void) {
         guard settings.ttsEnabled else {
-            print("TTS is disabled in settings – skipping speech.")
+            Log.info("TTS is disabled in settings – skipping speech.", category: .tts)
             completion()
             return
         }
@@ -156,7 +156,7 @@ final class TestAppModel: ObservableObject {
               let tts = kokoroTTSEngine,
               let voices = voices,
               let voiceData = voices[selectedVoice + ".npy"] else {
-            print("TTS components not ready or not initialized")
+            Log.error("TTS components not ready or not initialized", category: .tts)
             completion()
             return
         }
@@ -182,7 +182,7 @@ final class TestAppModel: ObservableObject {
                 audioFloats = generated.0
                 tokenArray = generated.1
             } catch {
-                print("KokoroTTS generateAudio failed: \(error.localizedDescription)")
+                Log.error("KokoroTTS generateAudio failed", category: .tts, error: error)
                 DispatchQueue.main.async { completion() }
                 return
             }
@@ -190,18 +190,18 @@ final class TestAppModel: ObservableObject {
             if let tokens = tokenArray as? [Any] {
                 for case let token as NSDictionary in tokens {
                     if let tokenText = token["text"] as? String {
-                        print("Token: \(tokenText)")
+                        Log.debug("Token: \(tokenText)", category: .tts)
                     }
                 }
             }
 
             let sampleRate = Double(KokoroTTS.Constants.samplingRate)
             let audioLength = Double(audioFloats.count) / sampleRate
-            print("Audio Length: \(String(format: "%.4f", audioLength))s")
+            Log.debug("Audio Length: \(String(format: "%.4f", audioLength))s", category: .tts)
 
             guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
                   let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(audioFloats.count)) else {
-                print("Failed to create AVAudioPCMBuffer")
+                Log.error("Failed to create AVAudioPCMBuffer", category: .audio)
                 DispatchQueue.main.async { completion() }
                 return
             }
@@ -209,7 +209,7 @@ final class TestAppModel: ObservableObject {
             buffer.frameLength = buffer.frameCapacity
             if let channelData = buffer.floatChannelData?[0] {
                 audioFloats.withUnsafeBufferPointer { srcBuffer in
-                    let src = srcBuffer.baseAddress!
+                    guard let src = srcBuffer.baseAddress else { return }
                     channelData.initialize(repeating: 0, count: audioFloats.count)
                     channelData.update(from: src, count: audioFloats.count)
                 }
@@ -225,7 +225,7 @@ final class TestAppModel: ObservableObject {
                     do {
                         try engine.start()
                     } catch {
-                        print("AudioEngine start failed: \(error.localizedDescription)")
+                        Log.error("AudioEngine start failed", category: .audio, error: error)
                         completion()
                         return
                     }

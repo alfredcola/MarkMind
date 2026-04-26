@@ -7,11 +7,15 @@
 import SwiftUI
 import Combine
 
+@MainActor
 class MCStudyHistory: ObservableObject {
     static let shared = MCStudyHistory()
     
     @Published var results: [MCStudyResult] = [] {
         didSet {
+            if results.count > Constants.Limits.maxMCStudyHistoryResults {
+                results = Array(results.prefix(Constants.Limits.maxMCStudyHistoryResults))
+            }
             save()
         }
     }

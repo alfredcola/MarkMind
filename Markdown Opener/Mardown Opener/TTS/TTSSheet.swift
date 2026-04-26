@@ -30,7 +30,7 @@ struct TTSSheet: View {
     @State private var pausedChunkText: String = ""
     @State private var wasManuallySelected: Bool = false
     @State private var chineseSynthesizer = AVSpeechSynthesizer()
-    @State private var chineseDelegate: ChineseTTSDelegate?
+    @State private var chineseDelegate: TTSUtils.ChineseTTSDelegate?
     @State private var sleepTimerManager = TTSSleepTimerManager.shared
     @State private var abRepeatManager = TTSABRepeatManager.shared
     @State private var showResumePrompt: Bool = false
@@ -103,7 +103,7 @@ struct TTSSheet: View {
                 UIApplication.shared.isIdleTimerDisabled = newValue
                 updateNowPlayingInfo()
             }
-            .onChange(of: currentChunkIndex) { [self] _, newIndex in
+            .onChange(of: currentChunkIndex) { _, newIndex in
                 updateNowPlayingInfo()
                 displaySpokenText = ""
                 spokenSoFarInCurrentChunk = ""
@@ -111,10 +111,10 @@ struct TTSSheet: View {
                     TTSReadingPositionManager.shared.savePosition(for: path, chunkIndex: newIndex)
                 }
             }
-            .onChange(of: model.stringToFollowTheAudio) { [self] _, newValue in
+            .onChange(of: model.stringToFollowTheAudio) { _, newValue in
                 spokenSoFarInCurrentChunk = newValue.trimmingCharacters(in: .whitespaces)
             }
-            .onChange(of: scenePhase) { [self] oldPhase, newPhase in
+            .onChange(of: scenePhase) { oldPhase, newPhase in
                 if newPhase == .background && isPlaying {
                     wasPlayingBeforeBackground = true
                     startBackgroundPreload()
@@ -638,9 +638,9 @@ struct TTSSheet: View {
         let (isChinese, _) = TTSUtils.detectContentLanguage(text)
         let locale = isChinese ? "zh-HK" : "en-US"
 
-        chineseDelegate = ChineseTTSDelegate { [self] in
+        chineseDelegate = TTSUtils.ChineseTTSDelegate { 
             DispatchQueue.main.async {
-                handlePlaybackComplete()
+                self.handlePlaybackComplete()
             }
         }
         chineseSynthesizer.delegate = chineseDelegate
@@ -673,14 +673,14 @@ struct TTSSheet: View {
 
     private func startChunkMonitoring() {
         chunkTimer?.invalidate()
-        chunkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in
-            if model.stringToFollowTheAudio.isEmpty {
-                chunkTimer?.invalidate()
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: Constants.TTS.chunkProcessingInterval, repeats: true) { _ in
+            if self.model.stringToFollowTheAudio.isEmpty {
+                self.chunkTimer?.invalidate()
                 return
             }
-            let newText = model.stringToFollowTheAudio.trimmingCharacters(in: .whitespaces)
-            if newText != displaySpokenText {
-                displaySpokenText = newText
+            let newText = self.model.stringToFollowTheAudio.trimmingCharacters(in: .whitespaces)
+            if newText != self.displaySpokenText {
+                self.displaySpokenText = newText
             }
         }
     }

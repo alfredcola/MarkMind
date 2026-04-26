@@ -20,7 +20,7 @@ final class InterstitialAdManager: NSObject, ObservableObject {
     @Published var isLoading = false
     private var interstitial: InterstitialAd?
     
-    private let adUnitID = "ca-app-pub-2445337445676652/5437686206"
+    private let adUnitID = Constants.Ads.interstitialAdUnitID
     
     private override init() {
         super.init()
@@ -37,7 +37,7 @@ final class InterstitialAdManager: NSObject, ObservableObject {
             guard let self else { return }
             self.isLoading = false
             if let error = error {
-                print("Interstitial load failed: \(error.localizedDescription)")
+                Log.error("Interstitial load failed", category: .subscription, error: error)
                 return
             }
             self.interstitial = ad
@@ -49,7 +49,7 @@ final class InterstitialAdManager: NSObject, ObservableObject {
     func present(from root: UIViewController? = nil) {
         if !adsDisabled && !manually_adsDisabled{
             guard let ad = interstitial else {
-                print("No interstitial ad ready.")
+                Log.debug("No interstitial ad ready.", category: .subscription)
                 loadAd()
                 return
             }
@@ -60,7 +60,7 @@ final class InterstitialAdManager: NSObject, ObservableObject {
                 interstitial = nil
                 loadAd()
             } catch {
-                print("Interstitial cannot present: \(error.localizedDescription)")
+                Log.error("Interstitial cannot present", category: .subscription, error: error)
                 interstitial = nil
                 loadAd()
             }
@@ -73,12 +73,12 @@ extension InterstitialAdManager: FullScreenContentDelegate {
     
     // 廣告即將顯示（adDidPresentFullScreenContent 已被替換為 adWillPresentFullScreenContent）
     func adWillPresentFullScreenContent(_ ad: any FullScreenPresentingAd) {
-        print("Interstitial will present.")
+        Log.debug("Interstitial will present.", category: .subscription)
     }
     
     // 廣告被關閉
     func adDidDismissFullScreenContent(_ ad: any FullScreenPresentingAd) {
-        print("Interstitial dismissed.")
+        Log.debug("Interstitial dismissed.", category: .subscription)
         interstitial = nil
         loadAd()
     }
@@ -86,7 +86,7 @@ extension InterstitialAdManager: FullScreenContentDelegate {
     // 廣告顯示失敗
     func ad(_ ad: any FullScreenPresentingAd,
             didFailToPresentFullScreenContentWithError error: any Error) {
-        print("Interstitial failed to present: \(error.localizedDescription)")
+        Log.error("Interstitial failed to present", category: .subscription, error: error)
         interstitial = nil
         loadAd()
     }

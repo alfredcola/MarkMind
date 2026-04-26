@@ -557,7 +557,7 @@ struct SheetsAndAlertsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // Chat sheet �� always .sheet
+            // Chat sheet – always .sheet
             .sheet(isPresented: $showingChatSheet) {
                 if let url = docURL {
                     ChatPanel(
@@ -606,7 +606,7 @@ struct SheetsAndAlertsModifier: ViewModifier {
                                 let imported = try store.importIntoLibrary(from: url)
                                 importedURLs.append(imported)
                             } catch {
-                                print("Failed to import \(url.lastPathComponent): \(error)")
+                                Log.error("Failed to import \(url.lastPathComponent)", category: .fileIO, error: error)
                                 if errorMessage == nil {
                                     errorMessage = "Some files could not be imported."
                                 }

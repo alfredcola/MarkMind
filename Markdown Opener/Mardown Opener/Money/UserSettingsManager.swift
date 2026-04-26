@@ -38,7 +38,7 @@ final class UserSettingsManager: ObservableObject {
             guard let self = self else { return }
             
             if let error = error {
-                print("Global subscription listener error: \(error.localizedDescription)")
+                Log.error("Global subscription listener error", category: .subscription, error: error)
                 // On error, keep showing sections (safe default)
                 self.isSubscriptionEnabled = true
                 return
@@ -46,13 +46,13 @@ final class UserSettingsManager: ObservableObject {
             
             guard let data = snapshot?.data() else {
                 // Document doesn't exist yet → treat as enabled
-                print("Settings document not found – defaulting to enabled")
+                Log.info("Settings document not found – defaulting to enabled", category: .subscription)
                 self.isSubscriptionEnabled = true
                 return
             }
             
             if let subscription = data["Subscription"] as? Bool {
-                print("Global Subscription updated: \(subscription)")
+                Log.debug("Global Subscription updated: \(subscription)", category: .subscription)
                 self.isSubscriptionEnabled = subscription
             } else {
                 // Field missing or wrong type → fallback
@@ -60,7 +60,7 @@ final class UserSettingsManager: ObservableObject {
             }
         }
         
-        print("Started listening to global setting document: \(settingsDocumentID)")
+        Log.debug("Started listening to global setting document: \(settingsDocumentID)", category: .subscription)
     }
     
     deinit {

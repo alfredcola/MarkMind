@@ -363,9 +363,8 @@ struct ProfileView: View {
                     self.isLoadingTransactions = false
 
                     if let error {
-                        print(
-                            "Failed to load transactions: \(error.localizedDescription)"
-                        )
+                        Log.error(
+                            "Failed to load transactions: \(error.localizedDescription)", category: .general)
 
                         // ── Important changes ────────────────────────────────
                         self.transactionLoadError = error.localizedDescription

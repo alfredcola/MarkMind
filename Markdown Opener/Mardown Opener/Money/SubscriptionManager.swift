@@ -41,7 +41,7 @@ class SubscriptionManager: ObservableObject {
         // Load previously processed transaction IDs from UserDefaults (persist across app launches)
         if let savedIDs = UserDefaults.standard.array(forKey: "processedSubscriptionTransactionIDs") as? [UInt64] {
             processedTransactionIDs = Set(savedIDs)
-            print("Loaded \(savedIDs.count) previously processed transaction IDs")
+            Log.debug("Loaded \(savedIDs.count) previously processed transaction IDs", category: .subscription)
         }
         
         // Start listening to transaction updates
@@ -100,7 +100,7 @@ class SubscriptionManager: ObservableObject {
                     await showError("Purchase could not be verified.")
                 }
             case .userCancelled:
-                print("User cancelled purchase")
+                Log.info("User cancelled purchase", category: .subscription)
             case .pending:
                 await showError("Purchase pending approval.")
             @unknown default:
@@ -130,14 +130,14 @@ class SubscriptionManager: ObservableObject {
             case .success(let verificationResult):
                 if case .verified(let transaction) = verificationResult {
                     RewardedAdManager.shared.addCoins(50)
-                    print("Successfully purchased 50 Coin Pack – granted 50 coins")
+                    Log.info("Successfully purchased 50 Coin Pack – granted 50 coins", category: .subscription)
                     await transaction.finish()
                 } else {
                     await showError("Purchase verification failed.")
                 }
                 
             case .userCancelled:
-                print("User cancelled 50 coin pack purchase")
+                Log.info("User cancelled 50 coin pack purchase", category: .subscription)
             case .pending:
                 await showError("Purchase is pending approval.")
             @unknown default:
@@ -155,7 +155,7 @@ class SubscriptionManager: ObservableObject {
         do {
             try await AppStore.sync()
             await loadSubscriptionFromFirestore()
-            print("Restore purchases completed")
+            Log.info("Restore purchases completed", category: .subscription)
         } catch {
             await showError("Restore failed: \(error.localizedDescription)")
         }
@@ -172,9 +172,9 @@ class SubscriptionManager: ObservableObject {
                 self.coinPackProduct = products.first { $0.id == coinPack50ProductID }
             }
             
-            print("Loaded consumable products: \(products.map { $0.displayName })")
+            Log.debug("Loaded consumable products: \(products.map { $0.displayName })", category: .subscription)
         } catch {
-            print("Failed to load consumable products: \(error)")
+            Log.error("Failed to load consumable products", category: .subscription, error: error)
         }
     }
     
@@ -194,11 +194,11 @@ class SubscriptionManager: ObservableObject {
                    case .verified = result {
                     RewardedAdManager.shared.addCoins(50)
                     await transaction.finish()
-                    print("Background: Granted 50 coins from verified coin pack transaction")
+                    Log.debug("Background: Granted 50 coins from verified coin pack transaction", category: .subscription)
                 }
                 
             } catch {
-                print("Transaction update failed verification: \(error)")
+                Log.error("Transaction update failed verification", category: .subscription, error: error)
             }
         }
     }
@@ -208,11 +208,11 @@ class SubscriptionManager: ObservableObject {
         guard transaction.productID == monthlyProductID else { return }
         
         let transactionID = transaction.id
-        print("Handling subscription transaction ID: \(transactionID) from \(source)")
+        Log.debug("Handling subscription transaction ID: \(transactionID) from \(source)", category: .subscription)
         
         // CRITICAL: Check if already processed (prevents duplicates)
         if processedTransactionIDs.contains(transactionID) {
-            print("Transaction \(transactionID) already processed – skipping to avoid duplicates")
+            Log.debug("Transaction \(transactionID) already processed – skipping to avoid duplicates", category: .subscription)
             await transaction.finish()
             return
         }
@@ -226,7 +226,7 @@ class SubscriptionManager: ObservableObject {
         
         // Ignore expired periods
         guard expiryDate > Date() else {
-            print("Ignoring expired subscription transaction (ID: \(transactionID))")
+            Log.debug("Ignoring expired subscription transaction (ID: \(transactionID))", category: .subscription)
             await transaction.finish()
             return
         }
@@ -243,18 +243,18 @@ class SubscriptionManager: ObservableObject {
         await grantMonthlyCoinsForActiveSubscription()
         
         await transaction.finish()
-        print("Successfully processed subscription transaction \(transactionID)")
+        Log.debug("Successfully processed subscription transaction \(transactionID)", category: .subscription)
     }
     
     private func grantMonthlyCoinsForActiveSubscription() async {
-        guard Auth.auth().currentUser != nil else { return }
-        
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
         RewardedAdManager.shared.addCoins(100)
-        print("Granted 100 coins for active subscription purchase/renewal")
+        Log.debug("Granted 100 coins for active subscription purchase/renewal", category: .subscription)
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        
+
         // Optional analytics timestamp
-        let userRef = db.collection("users").document(Auth.auth().currentUser!.uid)
+        let userRef = db.collection("users").document(uid)
         try? await userRef.setData(["lastCoinGrantDate": FieldValue.serverTimestamp()], merge: true)
     }
     
@@ -269,7 +269,7 @@ class SubscriptionManager: ObservableObject {
             let doc = try await db.collection("users").document(uid).getDocument()
             return doc.data()?["subscription"] == nil
         } catch {
-            print("Error checking first subscription: \(error)")
+            Log.error("Error checking first subscription", category: .subscription, error: error)
             return true
         }
     }
@@ -298,9 +298,9 @@ class SubscriptionManager: ObservableObject {
         
         do {
             try await userRef.setData(["subscription": subData], merge: true)
-            print("Subscription saved to Firestore")
+            Log.debug("Subscription saved to Firestore", category: .subscription)
         } catch {
-            print("Failed to save subscription: \(error)")
+            Log.error("Failed to save subscription", category: .subscription, error: error)
         }
     }
     
@@ -317,7 +317,7 @@ class SubscriptionManager: ObservableObject {
                 guard let self = self else { return }
                 
                 if let error = error {
-                    print("Subscription listener error: \(error.localizedDescription)")
+                    Log.error("Subscription listener error", category: .subscription, error: error)
                     return
                 }
                 
@@ -363,7 +363,7 @@ class SubscriptionManager: ObservableObject {
             let doc = try await db.collection("users").document(uid).getDocument()
             await updateSubscriptionStatus(from: doc.data())
         } catch {
-            print("Failed to load subscription from Firestore: \(error)")
+            Log.error("Failed to load subscription from Firestore", category: .subscription, error: error)
             await MainActor.run { self.isSubscribed = false }
         }
     }
@@ -399,7 +399,7 @@ class SubscriptionManager: ObservableObject {
             let products = try await Product.products(for: [monthlyProductID])
             return products.first
         } catch {
-            print("Fetch product failed: \(error)")
+            Log.error("Fetch product failed", category: .subscription, error: error)
             return nil
         }
     }

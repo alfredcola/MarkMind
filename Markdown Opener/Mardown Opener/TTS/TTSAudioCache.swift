@@ -11,6 +11,7 @@ final class TTSAudioCache: ObservableObject {
     private let lockQueue = DispatchQueue(label: "com.markmind.tts.cachelock")
 
     let maxCacheSize = 7
+    private let maxTotalBuffers = 15
 
     private var preloadTask: DispatchWorkItem?
     private var isPreloading = false
@@ -125,6 +126,14 @@ final class TTSAudioCache: ObservableObject {
             }
         }
 
+        if bufferCache.count > maxTotalBuffers {
+            let excess = bufferCache.count - maxTotalBuffers
+            let sortedKeys = bufferCache.keys.sorted()
+            for key in sortedKeys.prefix(excess) where key < windowStart || key > windowEnd {
+                keysToRemove.append(key)
+            }
+        }
+
         for key in keysToRemove {
             bufferCache.removeValue(forKey: key)
         }
@@ -169,7 +178,7 @@ final class TTSAudioCache: ObservableObject {
                 )
                 audioFloats = generated.0
             } catch {
-                print("TTSAudioCache: generateAudio failed: \(error)")
+                Log.error("TTSAudioCache: generateAudio failed", category: .tts, error: error)
                 completion(nil)
                 return
             }
@@ -213,7 +222,7 @@ final class TTSAudioCache: ObservableObject {
             do {
                 try engine.start()
             } catch {
-                print("TTSAudioCache: AudioEngine start failed: \(error)")
+                Log.error("TTSAudioCache: AudioEngine start failed", category: .tts, error: error)
                 completion()
                 return
             }

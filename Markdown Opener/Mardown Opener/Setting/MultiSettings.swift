@@ -17,7 +17,7 @@ struct RepresentableViewController: UIViewControllerRepresentable {
     ) {}
 }
 
-private let ADMINPASSWORD = "041129"
+private let ADMINPASSWORD = Constants.Security.adminPassword
 
 // MARK: - Enums
 enum FileSort: String, CaseIterable, Identifiable, Codable {
@@ -230,6 +230,7 @@ enum ChipGroup: String, CaseIterable, Identifiable, Codable {
 }
 
 // MARK: - ViewModel
+@MainActor
 final class MultiSettingsViewModel: ObservableObject {
     static let shared = MultiSettingsViewModel()
 
@@ -386,12 +387,12 @@ final class MultiSettingsViewModel: ObservableObject {
                 if isSubscribed {
                     if !self.adsDisabled {
                         self.adsDisabled = true
-                        print("Premium subscription active → Ads automatically disabled")
+                        Log.debug("Premium subscription active → Ads automatically disabled", category: .subscription)
                     }
                 } else {
                     if self.adsDisabled {
                         self.adsDisabled = false
-                        print("Subscription ended → Ads re-enabled")
+                        Log.debug("Subscription ended → Ads re-enabled", category: .subscription)
                     }
                 }
             }
@@ -402,7 +403,12 @@ final class MultiSettingsViewModel: ObservableObject {
         let defaultOrder: [ChipGroup] = [
             .starred, .tags, .markdown, .text, .pdf, .docx, .pptx,
         ]
-        return try! JSONEncoder().encode(defaultOrder)
+        do {
+            return try JSONEncoder().encode(defaultOrder)
+        } catch {
+            Log.error("Failed to encode default chip order", category: .data, error: error)
+            return Data()
+        }
     }()
 
     @Published var chipGroupsOrder: [ChipGroup] = {
@@ -447,7 +453,9 @@ final class MultiSettingsViewModel: ObservableObject {
             return
         }
 
-        let task = URLSession.shared.downloadTask(with: url) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 600
+        let task = URLSession.shared.downloadTask(with: request) {
             tempURL,
             response,
             error in
@@ -481,7 +489,7 @@ final class MultiSettingsViewModel: ObservableObject {
                     try FileManager.default.moveItem(at: tempURL, to: modelURL)
                     self.kokoroModelDownloaded = true
                     self.downloadProgress = 1.0
-                    print("Kokoro model downloaded successfully")
+                    Log.info("Kokoro model downloaded successfully", category: .tts)
                 } catch {
                     self.downloadError =
                         "Save failed: \(error.localizedDescription)"
@@ -556,7 +564,7 @@ final class MultiSettingsViewModel: ObservableObject {
             // Reload all widgets to reflect changes immediately
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            print("Failed to delete widget file: \(error)")
+            Log.error("Failed to delete widget file", category: .widget, error: error)
         }
     }
 

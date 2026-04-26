@@ -352,34 +352,6 @@ struct MultiSettingsView: View {
                 }
             }
 
-//            Section("Editor") {
-//                Picker("Default View", selection: $vm.defaultEditorView) {
-//                    ForEach(EditorViewType.allCases) { viewType in
-//                        Text(viewType.rawValue).tag(viewType)
-//                    }
-//                }
-//                .pickerStyle(.segmented)
-//                
-//                HStack {
-//                    Text("Font Size")
-//                    Spacer()
-//                    Text("\(Int(vm.editorFontSize))pt")
-//                        .foregroundStyle(.secondary)
-//                }
-//                Slider(value: $vm.editorFontSize, in: 12...24, step: 1)
-//                    .tint(.indigo)
-//                
-//                Toggle("Show Line Numbers", isOn: $vm.showLineNumbers)
-//                    .toggleStyle(SwitchToggleStyle(tint: .accentColor))
-//                
-//                Toggle("Spell Check", isOn: $vm.spellCheckEnabled)
-//                    .toggleStyle(SwitchToggleStyle(tint: .accentColor))
-//                
-//                Text("Configure editor appearance and behavior")
-//                    .font(.caption)
-//                    .foregroundStyle(.secondary)
-//            }
-
             Section("Auto-Save") {
                 Toggle("Enable Auto-Save", isOn: $vm.autoSaveEnabled)
                     .toggleStyle(SwitchToggleStyle(tint: .accentColor))
@@ -598,9 +570,8 @@ struct MultiSettingsView: View {
             } catch {
                 await MainActor.run {
                     // In a real app, show an alert here
-                    print(
-                        "Failed to import converted PDF: \(error.localizedDescription)"
-                    )
+                    Log.error(
+                        "Failed to import converted PDF: \(error.localizedDescription)", category: .fileIO)
                 }
             }
         }

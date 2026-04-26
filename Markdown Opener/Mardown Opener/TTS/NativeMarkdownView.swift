@@ -11,15 +11,17 @@ import Markdown
 struct NativeMarkdownView: View {
     let markdown: String
     var horizontalAlignment: HorizontalAlignment = .leading
-    
+
     @EnvironmentObject var model: TestAppModel
     @ObservedObject private var settingsVM = MultiSettingsViewModel.shared
-    
+
+    private typealias ChineseTTSDelegate = TTSUtils.ChineseTTSDelegate
+
     // Cached results — recompute only when markdown changes
     @State private var attributedContent: AttributedString = AttributedString("")
     @State private var chunks: [String] = []
     @State private var useBuiltInTTS: Bool = false
-    
+
     // Playback state
     @State private var currentChunkIndex: Int = 0
     @State private var isPlaying: Bool = false
@@ -29,7 +31,7 @@ struct NativeMarkdownView: View {
     @State private var pausedChunkText: String = ""
     @State private var wasManuallySelected: Bool = false
     @Binding var ttsEnabled: Bool
-    
+
     // TTS
     @State private var chineseSynthesizer = AVSpeechSynthesizer()
     @State private var chineseDelegate: ChineseTTSDelegate?
@@ -57,7 +59,7 @@ struct NativeMarkdownView: View {
                 spokenSoFarInCurrentChunk = newValue.trimmingCharacters(in: .whitespaces)
             }
         }
-        .onChange(of: settingsVM.selectedVoice) {
+        .onChange(of: settingsVM.selectedVoice) { _, _ in
             model.selectedVoice = settingsVM.selectedVoice.rawValue
         }
         .onDisappear {
@@ -146,11 +148,11 @@ struct NativeMarkdownView: View {
         attributedContent = styled(md)
         
         if ttsEnabled{
-            let (isChinese, _) = detectContentLanguage(md)
+            let (isChinese, _) = TTSUtils.detectContentLanguage(md)
             let shouldUseBuiltIn = isChinese || !TestAppModel.isSupportedDevice()
             useBuiltInTTS = shouldUseBuiltIn
             
-            let clean = cleanMarkdownForTTS(md)
+            let clean = TTSUtils.cleanMarkdownForTTS(md)
             let newChunks = await computeOptimalChunks(cleanText: clean, isChinese: isChinese)
             
             if chunks != newChunks {
@@ -163,27 +165,7 @@ struct NativeMarkdownView: View {
     
     private func computeOptimalChunks(cleanText: String, isChinese: Bool) async -> [String] {
         await Task.detached(priority: .utility) {
-            if isChinese {
-                let punctuation = CharacterSet(charactersIn: "。？！，；：…")
-                let sentences = cleanText.components(separatedBy: punctuation)
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { $0.count > 1 }
-                
-                return sentences
-                    .flatMap { safeSplitLongSentence(sentence: $0, maxLength: 220) }
-                    .filter { $0.count > 3 }
-            } else {
-                let sentences = await linguisticSentenceSplit(cleanText)
-                var final: [String] = []
-                for s in sentences {
-                    if s.count <= 220 {
-                        final.append(s)
-                    } else {
-                        await final.append(contentsOf: safeSplitLongSentence(sentence: s, maxLength: 220))
-                    }
-                }
-                return final.filter { !$0.isEmpty }
-            }
+            TTSUtils.computeTTSChunks(from: cleanText, isChinese: isChinese)
         }.value
     }
     
@@ -280,38 +262,26 @@ struct NativeMarkdownView: View {
     
     private func startChunkMonitoring() {
         chunkTimer?.invalidate()
-        chunkTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
-            guard !model.stringToFollowTheAudio.isEmpty else {
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: Constants.TTS.chunkMonitoringInterval, repeats: true) { _ in
+            guard !self.model.stringToFollowTheAudio.isEmpty else {
                 self.chunkTimer?.invalidate()
                 return
             }
-            self.spokenSoFarInCurrentChunk = model.stringToFollowTheAudio.trimmingCharacters(in: .whitespaces)
+            self.spokenSoFarInCurrentChunk = self.model.stringToFollowTheAudio.trimmingCharacters(in: .whitespaces)
         }
     }
-    
+
     private func stopPlayback() {
         finishPlayback()
         currentChunkIndex = 0
     }
-    
+
     // MARK: - Helpers
-    private func detectContentLanguage(_ text: String) -> (isChinese: Bool, voiceLocale: String) {
-        let cleanText = cleanMarkdownForTTS(text)
-        let chineseCount = cleanText.unicodeScalars.filter { scalar in
-            (0x4E00...0x9FFF).contains(scalar.value) ||
-            (0x3400...0x4DBF).contains(scalar.value) ||
-            (0xF900...0xFAFF).contains(scalar.value)
-        }.count
-        
-        let ratio = cleanText.isEmpty ? 0 : Double(chineseCount) / Double(cleanText.count)
-        return ratio > 0.3 ? (true, "zh-HK") : (false, "en-US")
-    }
-    
     private func playChineseTTS(_ text: String) {
-        let (isChinese, _) = detectContentLanguage(text)
+        let (isChinese, _) = TTSUtils.detectContentLanguage(text)
         let locale = isChinese ? "zh-HK" : "en-US"
-        
-        chineseDelegate = ChineseTTSDelegate {
+
+        chineseDelegate = TTSUtils.ChineseTTSDelegate { 
             DispatchQueue.main.async {
                 self.handlePlaybackComplete()
             }
@@ -326,64 +296,10 @@ struct NativeMarkdownView: View {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("AVAudioSession error: \(error)")
+            Log.error("AVAudioSession error", category: .tts, error: error)
         }
         
         chineseSynthesizer.speak(utterance)
-    }
-    
-    private func cleanMarkdownForTTS(_ text: String) -> String {
-        var s = text
-        
-        // Explicitly typed array to fix heterogeneous literal error
-        let patterns: [(pattern: String, template: String, options: NSRegularExpression.Options)] = [
-            ("[#*`]+", "", []),
-            ("^[1-6]\\.\\s*", "", .anchorsMatchLines),
-            ("-{3,}", "", .anchorsMatchLines),
-            ("\\s{3,}", " ", [])
-        ]
-        
-        for item in patterns {
-            if let regex = try? NSRegularExpression(pattern: item.pattern, options: item.options) {
-                s = regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: item.template)
-            }
-        }
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    
-    private func linguisticSentenceSplit(_ text: String) -> [String] {
-        guard !text.isEmpty else { return [] }
-        let tagger = NSLinguisticTagger(tagSchemes: [.tokenType], options: 0)
-        tagger.string = text
-        var sentences: [String] = []
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        
-        tagger.enumerateTags(in: range, unit: .sentence, scheme: .tokenType, options: [.omitWhitespace, .omitPunctuation, .joinNames]) { (tag, sentenceRange, pointer) in
-            let sentence = (text as NSString).substring(with: sentenceRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sentence.isEmpty && !",.?!".contains(sentence) {
-                sentences.append(sentence)
-            }
-        }
-        return sentences.isEmpty ? [text] : sentences
-    }
-    
-    private func safeSplitLongSentence(sentence: String, maxLength: Int) -> [String] {
-        var parts: [String] = []
-        var remaining = sentence
-        
-        while remaining.count > maxLength {
-            let limit = remaining.index(remaining.startIndex, offsetBy: maxLength)
-            if let splitPoint = remaining[..<limit].rangeOfCharacter(from: .whitespacesAndNewlines, options: .backwards)?.upperBound {
-                let part = String(remaining[..<splitPoint]).trimmingCharacters(in: .whitespaces)
-                if !part.isEmpty { parts.append(part) }
-                remaining = String(remaining[splitPoint...]).trimmingCharacters(in: .whitespaces)
-            } else {
-                parts.append(String(remaining[..<limit]))
-                remaining = String(remaining[limit...])
-            }
-        }
-        if !remaining.isEmpty { parts.append(remaining) }
-        return parts
     }
      
     private func styled(_ md: String) -> AttributedString {
@@ -455,17 +371,9 @@ struct NativeMarkdownView: View {
             }
             return output
         } catch {
-            print("AttributedString conversion failed: \(error)")
+            Log.error("AttributedString conversion failed", category: .tts, error: error)
             return AttributedString(md)
         }
     }
     
-    // MARK: - Delegate
-    private class ChineseTTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
-        let completion: () -> Void
-        init(completion: @escaping () -> Void) { self.completion = completion }
-        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-            completion()
-        }
     }
-}
