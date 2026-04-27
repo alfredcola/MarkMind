@@ -15,50 +15,59 @@ import GoogleSignIn
 @main
 struct MarkMindApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+
     // Shared managers
     @StateObject private var favorites = FavoritesManager.shared
     @StateObject private var router = OpenURLRouter()
-    @StateObject private var ttsModel = TestAppModel()
-    
+    @StateObject private var ttsmodel = TestAppModel()
+
     // Authentication & Rewarded Ads (for coin sync)
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var rewardedAdManager = RewardedAdManager.shared
-    
+
+    // Cloud Sync Manager
+    @StateObject private var cloudSyncManager = CloudSyncManager.shared
+
     // EULA handling
     @AppStorage("hasAcceptedEULAv1") private var hasAcceptedEULA: Bool = false
     @AppStorage("eulaVersionAccepted") private var eulaVersionAccepted: Double = 0
     private let currentEULAVersion: Double = 1.0
-    
+
     @AppStorage("ads_disabled") var adsDisabled: Bool = false
 
     init() {
         MLX.GPU.set(cacheLimit: Constants.MLX.gpuCacheLimit)
         MLX.GPU.set(memoryLimit: Constants.MLX.gpuMemoryLimit)
     }
-    
+
     var body: some Scene {
         WindowGroup {
             Group {
                 if shouldShowEULA {
                     EULAView(onAccept: acceptEULA)
+                } else if !authManager.isSignedIn {
+                    SignInRequiredView()
+                } else if shouldShowCloudSyncOnboarding {
+                    CloudSyncOnboardingView()
                 } else {
                     AdaptiveRoot()
                         .environmentObject(router)
                         .environmentObject(favorites)
                         .environmentObject(ConversationStore.shared)
                         .environmentObject(FlashcardStore.shared)
-                        .environmentObject(DocumentStore.shared)
+                        .environmentObject(GCSDocumentStore.shared)
                         .environmentObject(TagsManager.shared)
-                        .environmentObject(ttsModel)
+                        .environmentObject(ttsmodel)
                         .environmentObject(MCStore.shared)
                         .environmentObject(authManager)
                         .environmentObject(rewardedAdManager)
+                        .environmentObject(cloudSyncManager)
+                        .environmentObject(StorageQuotaManager.shared)
                         .onOpenURL { url in
                             if router.handle(url) {
                                 return
                             }
-                            
+
                             _ = GIDSignIn.sharedInstance.handle(url)
                         }
                         .onAppear {
@@ -70,22 +79,37 @@ struct MarkMindApp: App {
                         .onAppear {
                             if authManager.isSignedIn {
                                 authManager.loadOrMergeCoins()
-                                
+
                                 RewardedAdManager.shared.checkAndAwardDailyLoginReward()
+
+                                // Refresh storage quota
+                                Task {
+                                    await StorageQuotaManager.shared.refreshQuota()
+                                }
+                            }
+                            // Initialize cloud sync if enabled
+                            if cloudSyncManager.isEnabled {
+                                Task {
+                                    await cloudSyncManager.performSync()
+                                }
                             }
                         }
-                        // MARK: - NEW: Reload coins every time app enters foreground
+                        // MARK: - Reload coins every time app enters foreground
                         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                             if authManager.isSignedIn {
                                 print("App entered foreground – syncing latest coins from Firestore")
                                 authManager.loadOrMergeCoins()
+                            }
+                            // Trigger cloud sync on foreground
+                            if cloudSyncManager.isEnabled {
+                                cloudSyncManager.triggerSync()
                             }
                         }
                 }
             }
         }
     }
-    
+
     private func printSharedContainerContents() async {
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: "group.com.alfredchen.MarkMind"
@@ -109,6 +133,14 @@ struct MarkMindApp: App {
 
     private var shouldShowEULA: Bool {
         !hasAcceptedEULA || eulaVersionAccepted != currentEULAVersion
+    }
+
+    private var shouldShowCloudSyncOnboarding: Bool {
+        // Only show if EULA is accepted, user is signed in, and hasn't completed onboarding
+        if shouldShowEULA { return false }
+        if !authManager.isSignedIn { return false }
+        if UserDefaults.standard.bool(forKey: "cloudSync_onboardingCompleted") { return false }
+        return true
     }
 
     private func acceptEULA() {

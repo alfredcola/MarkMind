@@ -40,6 +40,8 @@ struct TTSSheet: View {
     @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var wasPlayingBeforeBackground: Bool = false
     @State private var displaySpokenText: String = ""
+    @State private var showPreloadProgress: Bool = false
+    @ObservedObject private var persistentCache = TTSPersistentAudioCache.shared
 
     @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) var scenePhase
@@ -70,6 +72,10 @@ struct TTSSheet: View {
                 } else {
                     contentView
                 }
+
+                if showPreloadProgress {
+                    preloadProgressOverlay
+                }
             }
             .navigationTitle("Reading Aloud")
             .navigationBarTitleDisplayMode(.inline)
@@ -79,6 +85,20 @@ struct TTSSheet: View {
                         dismiss()
                     }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        togglePreloadAll()
+                    } label: {
+                        if persistentCache.isPreloadingAll {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: hasPreloadedAllChunks ? "checkmark.circle.fill" : "arrow.down.circle")
+                                .foregroundColor(hasPreloadedAllChunks ? .green : .primary)
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showSettingsSheet = true
@@ -482,27 +502,32 @@ struct TTSSheet: View {
         guard backgroundTaskID == .invalid else { return }
         guard isPlaying && currentChunkIndex < chunks.count else { return }
 
-        let currentChunk = chunks[currentChunkIndex]
-        guard currentChunk.shouldUseKokoro && TestAppModel.isSupportedDevice() else {
-            return
-        }
-
         backgroundTaskID = UIApplication.shared.beginBackgroundTask { [self] in
             self.endBackgroundTask()
         }
 
         guard backgroundTaskID != .invalid else { return }
 
-        TTSAudioCache.shared.preloadCurrent(
-            currentIndex: currentChunkIndex,
-            text: currentChunk.text,
-            model: model
-        ) { [self] in
-            self.preloadFutureChunks()
+        let chunk = chunks[currentChunkIndex]
+        if chunk.shouldUseKokoro && TestAppModel.isSupportedDevice() {
+            TTSAudioCache.shared.preloadCurrent(
+                currentIndex: currentChunkIndex,
+                text: chunk.text,
+                model: model
+            ) { [self] in
+                self.preloadFutureChunks()
+            }
+        } else {
+            endBackgroundTask()
         }
     }
 
     private func preloadFutureChunks() {
+        guard let path = filePath else {
+            endBackgroundTask()
+            return
+        }
+
         let preloadCount = 3
         var textsToPreload: [(index: Int, text: String)] = []
 
@@ -511,7 +536,9 @@ struct TTSSheet: View {
             guard nextIndex < chunks.count else { break }
             let chunk = chunks[nextIndex]
             if chunk.shouldUseKokoro && TestAppModel.isSupportedDevice() {
-                textsToPreload.append((index: nextIndex, text: chunk.text))
+                if !TTSAudioCache.shared.hasBuffer(for: nextIndex) && !persistentCache.hasCachedAudio(for: path, chunkIndex: nextIndex) {
+                    textsToPreload.append((index: nextIndex, text: chunk.text))
+                }
             }
         }
 
@@ -536,18 +563,31 @@ struct TTSSheet: View {
         let nextIndex = currentChunkIndex + 1
         guard nextIndex < chunks.count else { return }
 
-        if TTSAudioCache.shared.hasBuffer(for: nextIndex) {
+        let chunk = chunks[nextIndex]
+        if chunk.shouldUseKokoro && TestAppModel.isSupportedDevice() {
+            if TTSAudioCache.shared.hasBuffer(for: nextIndex) {
+                currentChunkIndex = nextIndex
+                spokenSoFarInCurrentChunk = ""
+                updateCurrentTTSEngine()
+                playCurrentChunk()
+            } else if let path = filePath, persistentCache.hasCachedAudio(for: path, chunkIndex: nextIndex) {
+                currentChunkIndex = nextIndex
+                spokenSoFarInCurrentChunk = ""
+                updateCurrentTTSEngine()
+                playCurrentChunk()
+            } else {
+                preloadNextFewChunks()
+            }
+        } else {
             currentChunkIndex = nextIndex
             spokenSoFarInCurrentChunk = ""
             updateCurrentTTSEngine()
             playCurrentChunk()
-            preloadNextFewChunks()
-        } else {
-            preloadNextFewChunks()
         }
     }
 
     private func preloadNextFewChunks() {
+        guard let path = filePath else { return }
         var textsToPreload: [(index: Int, text: String)] = []
         let startIndex = max(0, currentChunkIndex - 1)
 
@@ -555,7 +595,7 @@ struct TTSSheet: View {
             let idx = startIndex + i
             guard idx < chunks.count else { break }
             guard chunks[idx].shouldUseKokoro && TestAppModel.isSupportedDevice() else { continue }
-            if !TTSAudioCache.shared.hasBuffer(for: idx) {
+            if !TTSAudioCache.shared.hasBuffer(for: idx) && !persistentCache.hasCachedAudio(for: path, chunkIndex: idx) {
                 textsToPreload.append((index: idx, text: chunks[idx].text))
             }
         }
@@ -596,9 +636,21 @@ struct TTSSheet: View {
 
     private func playKokoroChunk() {
         let chunk = chunks[currentChunkIndex]
+        let chunkIndex = currentChunkIndex
 
-        if let cachedBuffer = TTSAudioCache.shared.getBuffer(for: currentChunkIndex) {
+        if let cachedBuffer = TTSAudioCache.shared.getBuffer(for: chunkIndex) {
+            if let path = filePath {
+                persistentCache.prefetchFromDisk(filePath: path, chunkIndex: chunkIndex + 1)
+            }
             TTSAudioCache.shared.playFromCache(cachedBuffer, model: model) { [self] in
+                DispatchQueue.main.async {
+                    handlePlaybackComplete()
+                }
+            }
+        } else if let path = filePath, let diskBuffer = persistentCache.loadFromDisk(filePath: path, chunkIndex: chunkIndex) {
+            TTSAudioCache.shared.cacheBuffer(diskBuffer, for: chunkIndex)
+            persistentCache.prefetchFromDisk(filePath: path, chunkIndex: chunkIndex + 2)
+            TTSAudioCache.shared.playFromCache(diskBuffer, model: model) { [self] in
                 DispatchQueue.main.async {
                     handlePlaybackComplete()
                 }
@@ -618,20 +670,7 @@ struct TTSSheet: View {
         model.stringToFollowTheAudio = chunk.text
         startChunkMonitoring()
 
-        let nextIndex = currentChunkIndex + 1
-        if nextIndex < chunks.count && chunks[nextIndex].shouldUseKokoro {
-            var textsToPreload: [(index: Int, text: String)] = []
-            for i in 0..<2 {
-                let idx = nextIndex + i
-                guard idx < chunks.count, chunks[idx].shouldUseKokoro else { break }
-                if !TTSAudioCache.shared.hasBuffer(for: idx) {
-                    textsToPreload.append((index: idx, text: chunks[idx].text))
-                }
-            }
-            if !textsToPreload.isEmpty {
-                TTSAudioCache.shared.preloadMultiple(from: currentChunkIndex, texts: textsToPreload, model: model, completion: nil)
-            }
-        }
+        preloadNextFewChunks()
     }
 
     private func playAVSpeech(_ text: String) {
@@ -731,7 +770,6 @@ struct TTSSheet: View {
             model.timer?.invalidate()
         }
         chunkTimer?.invalidate()
-        TTSAudioCache.shared.clearAll()
         spokenSoFarInCurrentChunk = ""
         displaySpokenText = ""
     }
@@ -755,5 +793,76 @@ struct TTSSheet: View {
     private func updateCurrentTTSEngine() {
         guard !chunks.isEmpty else { return }
         currentTTSEngine = chunks[currentChunkIndex].shouldUseKokoro ? .kokoro : .avSpeech
+    }
+
+    private var hasPreloadedAllChunks: Bool {
+        guard let path = filePath, !chunks.isEmpty else { return false }
+        let kokoroIndices = chunks.indices.filter { chunks[$0].shouldUseKokoro }
+        guard !kokoroIndices.isEmpty else { return false }
+        return kokoroIndices.allSatisfy { persistentCache.hasCachedAudio(for: path, chunkIndex: $0) }
+    }
+
+    private var preloadProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                ProgressView(value: persistentCache.preloadProgress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 200)
+
+                Text("Preloading Audio...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+
+                Text("Chunk \(persistentCache.currentPreloadIndex) of \(persistentCache.totalChunksToPreload)")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.8))
+
+                Button {
+                    persistentCache.cancelPreload()
+                    showPreloadProgress = false
+                } label: {
+                    Text("Cancel")
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.white.opacity(0.2))
+                        .cornerRadius(8)
+                }
+                .padding(.top, 10)
+            }
+            .padding(30)
+            .background(Color(UIColor.systemGray).opacity(0.9))
+            .cornerRadius(16)
+        }
+    }
+
+    private func togglePreloadAll() {
+        guard let path = filePath else { return }
+
+        if persistentCache.isPreloadingAll {
+            persistentCache.cancelPreload()
+            showPreloadProgress = false
+            return
+        }
+
+        if hasPreloadedAllChunks {
+            persistentCache.clearCachedAudio(for: path)
+            return
+        }
+
+        showPreloadProgress = true
+        let language: KokoroSwift.Language = model.selectedVoice.first == "a" ? .enUS : .enGB
+
+        persistentCache.preloadAllChunks(
+            chunks: chunks,
+            filePath: path,
+            model: model,
+            voiceLocale: language
+        ) { [self] in
+            showPreloadProgress = false
+        }
     }
 }

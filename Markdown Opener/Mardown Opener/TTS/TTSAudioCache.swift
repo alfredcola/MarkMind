@@ -7,34 +7,35 @@ final class TTSAudioCache: ObservableObject {
     static let shared = TTSAudioCache()
 
     private var bufferCache: [Int: AVAudioPCMBuffer] = [:]
-    private let cacheQueue = DispatchQueue(label: "com.markmind.tts.cache", qos: .userInitiated)
     private let lockQueue = DispatchQueue(label: "com.markmind.tts.cachelock")
+    private let ttsQueue = DispatchQueue(label: "com.markmind.tts.generation", qos: .userInitiated)
 
-    let maxCacheSize = 7
-    private let maxTotalBuffers = 15
+    let maxCacheSize = 10
+    private let maxTotalBuffers = 20
 
-    private var preloadTask: DispatchWorkItem?
+    private var preloadTask: Task<Void, Never>?
     private var isPreloading = false
+    private var isCancelled = false
 
     private init() {}
 
-    func preloadNext(from currentIndex: Int, text: String, model: TestAppModel) {
-        let nextIndex = currentIndex + 1
+    func cancelPreload() {
+        isCancelled = true
+        preloadTask?.cancel()
+        preloadTask = nil
+        isPreloading = false
+    }
 
-        lockQueue.sync {
-            if bufferCache[nextIndex] != nil { return }
-        }
-
-        generateBufferAsync(for: text, model: model) { [weak self] buffer in
-            guard let self = self, let buffer = buffer else { return }
-            self.lockQueue.async {
-                self.bufferCache[nextIndex] = buffer
-                self.evictOldBuffers(keepingFrom: currentIndex)
-            }
-        }
+    func resetCancellation() {
+        isCancelled = false
     }
 
     func preloadCurrent(currentIndex: Int, text: String, model: TestAppModel, completion: (() -> Void)? = nil) {
+        guard !isCancelled else {
+            completion?()
+            return
+        }
+
         lockQueue.sync {
             if bufferCache[currentIndex] != nil {
                 completion?()
@@ -42,21 +43,24 @@ final class TTSAudioCache: ObservableObject {
             }
         }
 
-        generateBufferAsync(for: text, model: model) { [weak self] buffer in
-            guard let self = self, let buffer = buffer else {
+        Task { [weak self] in
+            guard let self = self, !self.isCancelled else {
                 completion?()
                 return
             }
-            self.lockQueue.async {
-                self.bufferCache[currentIndex] = buffer
-                self.evictOldBuffers(keepingFrom: currentIndex)
+            if let buffer = await self.generateBuffer(for: text, model: model) {
+                self.lockQueue.async {
+                    guard !self.isCancelled else { return }
+                    self.bufferCache[currentIndex] = buffer
+                    self.evictOldBuffers(keepingFrom: currentIndex)
+                }
             }
             completion?()
         }
     }
 
     func preloadMultiple(from startIndex: Int, texts: [(index: Int, text: String)], model: TestAppModel, completion: (() -> Void)? = nil) {
-        guard !texts.isEmpty else {
+        guard !texts.isEmpty, !isCancelled else {
             completion?()
             return
         }
@@ -66,16 +70,17 @@ final class TTSAudioCache: ObservableObject {
             return
         }
 
+        resetCancellation()
+        cancelPreload()
         isPreloading = true
-        preloadTask?.cancel()
 
-        let task = DispatchWorkItem { [weak self] in
+        preloadTask = Task { [weak self] in
             guard let self = self else {
-                DispatchQueue.main.async { completion?() }
+                completion?()
                 return
             }
 
-            var textsToCache = texts
+            var textsToCache: [(index: Int, text: String)] = []
 
             self.lockQueue.sync {
                 textsToCache = texts.filter { self.bufferCache[$0.index] == nil }
@@ -83,36 +88,81 @@ final class TTSAudioCache: ObservableObject {
 
             guard !textsToCache.isEmpty else {
                 self.isPreloading = false
-                DispatchQueue.main.async { completion?() }
+                await MainActor.run { completion?() }
                 return
             }
 
-            let semaphore = DispatchSemaphore(value: 2)
-            let group = DispatchGroup()
-
             for item in textsToCache {
-                guard self.preloadTask?.isCancelled != true else { break }
+                guard !Task.isCancelled, !self.isCancelled else { break }
 
-                group.enter()
-                semaphore.wait()
-
-                self.generateBufferAsync(for: item.text, model: model) { [weak self] buffer in
-                    defer { semaphore.signal(); group.leave() }
-                    guard let self = self, let buffer = buffer else { return }
+                if let buffer = await self.generateBuffer(for: item.text, model: model) {
                     self.lockQueue.async {
+                        guard !self.isCancelled else { return }
                         self.bufferCache[item.index] = buffer
                         self.evictOldBuffers(keepingFrom: startIndex)
                     }
                 }
             }
 
-            group.wait()
             self.isPreloading = false
-            DispatchQueue.main.async { completion?() }
+            if !Task.isCancelled {
+                await MainActor.run { completion?() }
+            }
+        }
+    }
+
+    private func generateBuffer(for text: String, model: TestAppModel) async -> AVAudioPCMBuffer? {
+        guard !isCancelled else { return nil }
+        guard let tts = model.kokoroTTSEngine,
+              let voices = model.voices,
+              let voiceData = voices[model.selectedVoice + ".npy"] else {
+            return nil
         }
 
-        preloadTask = task
-        cacheQueue.async(execute: task)
+        return await withCheckedContinuation { continuation in
+            ttsQueue.async { [weak self] in
+                guard self == nil || !self!.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                do {
+                    let generated = try tts.generateAudio(
+                        voice: voiceData,
+                        language: model.selectedVoice.first == "a" ? .enUS : .enGB,
+                        text: text
+                    )
+                    let audioFloats = generated.0
+
+                    guard !audioFloats.isEmpty else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+
+                    let sampleRate = Double(KokoroTTS.Constants.samplingRate)
+
+                    guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+                          let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(audioFloats.count)) else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+
+                    buffer.frameLength = buffer.frameCapacity
+
+                    if let channelData = buffer.floatChannelData?[0] {
+                        audioFloats.withUnsafeBufferPointer { src in
+                            guard let srcBase = src.baseAddress else { return }
+                            channelData.update(from: srcBase, count: audioFloats.count)
+                        }
+                    }
+
+                    continuation.resume(returning: buffer)
+                } catch {
+                    Log.error("TTSAudioCache: generateAudio failed", category: .tts, error: error)
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     private func evictOldBuffers(keepingFrom currentIndex: Int) {
@@ -151,60 +201,17 @@ final class TTSAudioCache: ObservableObject {
         }
     }
 
-    func clearAll() {
-        preloadTask?.cancel()
-        isPreloading = false
+    func cacheBuffer(_ buffer: AVAudioPCMBuffer, for index: Int) {
         lockQueue.async { [weak self] in
-            self?.bufferCache.removeAll()
+            self?.bufferCache[index] = buffer
+            self?.evictOldBuffers(keepingFrom: index)
         }
     }
 
-    private func generateBufferAsync(for text: String, model: TestAppModel, completion: @escaping (AVAudioPCMBuffer?) -> Void) {
-        guard let tts = model.kokoroTTSEngine,
-              let voices = model.voices,
-              let voiceData = voices[model.selectedVoice + ".npy"] else {
-            completion(nil)
-            return
-        }
-
-        cacheQueue.async {
-            var audioFloats: [Float] = []
-
-            do {
-                let generated = try tts.generateAudio(
-                    voice: voiceData,
-                    language: model.selectedVoice.first == "a" ? .enUS : .enGB,
-                    text: text
-                )
-                audioFloats = generated.0
-            } catch {
-                Log.error("TTSAudioCache: generateAudio failed", category: .tts, error: error)
-                completion(nil)
-                return
-            }
-
-            guard !audioFloats.isEmpty else {
-                completion(nil)
-                return
-            }
-
-            let sampleRate = Double(KokoroTTS.Constants.samplingRate)
-
-            guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
-                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(audioFloats.count)) else {
-                completion(nil)
-                return
-            }
-
-            buffer.frameLength = buffer.frameCapacity
-
-            if let channelData = buffer.floatChannelData?[0] {
-                for i in 0..<audioFloats.count {
-                    channelData[i] = audioFloats[i]
-                }
-            }
-
-            completion(buffer)
+    func clearAll() {
+        cancelPreload()
+        lockQueue.async { [weak self] in
+            self?.bufferCache.removeAll()
         }
     }
 

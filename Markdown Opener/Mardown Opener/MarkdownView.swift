@@ -27,7 +27,7 @@ struct EmptyStateView: View {
                     .font(.title2)
                     .fontWeight(.semibold)
 
-                Text("Open a document to get started, or explore the powerful AI study tools below.")
+                Text("Your one stop self-study app - Open a document to get started, or explore the powerful AI study tools below.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -38,25 +38,25 @@ struct EmptyStateView: View {
                 FeatureRow(
                     icon: "eye",
                     title: "Rich Preview & Editing",
-                    description: "View and edit Markdown, PDF, DOCX, PPTX files with beautiful rendering and syntax highlighting."
+                    description: "View and edit documents with beautiful rendering and syntax highlighting. Perfect for self-study materials."
                 )
 
                 FeatureRow(
                     icon: "bubble.left.and.text.bubble.right.fill",
                     title: "AI Chat Assistant",
-                    description: "Ask questions, summarize, extract key points, translate, or analyze any document instantly."
+                    description: "Ask questions, summarize, extract key points, or analyze any document instantly. Your personal AI study companion."
                 )
 
                 FeatureRow(
                     icon: "square.on.square",
                     title: "Smart Flashcards",
-                    description: "Generate bilingual or explanation-style flashcards automatically for active recall learning."
+                    description: "Generate flashcards automatically for active recall learning. The ultimate self-study tool for memorizing anything."
                 )
 
                 FeatureRow(
                     icon: "checkmark.rectangle",
                     title: "Multiple-Choice Practice",
-                    description: "Create and study MC questions with detailed explanations to test your understanding."
+                    description: "Create MC questions with detailed explanations to test your understanding. Track progress as you study."
                 )
             }
             .padding(.horizontal)
@@ -119,7 +119,7 @@ struct DocumentPickerView: UIViewControllerRepresentable {
         
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: types,
-            asCopy: true
+            asCopy: false
         )
         picker.allowsMultipleSelection = true  // ← THIS ENABLES MULTIPLE SELECTION
         picker.delegate = context.coordinator
@@ -334,7 +334,7 @@ struct ShortcutsBar: View {
 
 struct InputBar: View {
     @Binding var input: String
-    private let documentStore = DocumentStore.shared
+    private let documentStore = GCSDocumentStore.shared
     let hasSeed: Bool
     let sending: Bool
     @Binding var selectedFiles: [(url: URL, content: String)]
@@ -509,6 +509,7 @@ enum Tab: Hashable {
     case flashcards
     case memorize
     case mccards
+    case tts
     
 }
 
@@ -528,7 +529,7 @@ struct SheetsAndAlertsModifier: ViewModifier {
     let docText: String
     let flashSession: FlashcardSession
     let mcSession: MCSession                              // ← Added
-    let store: DocumentStore
+    let store: DocumentRepository
     let flashcardStore: FlashcardStore
     let mcStore: MCStore                                  // ← Added
     let convo: ConversationStore
@@ -603,7 +604,7 @@ struct SheetsAndAlertsModifier: ViewModifier {
                             }
 
                             do {
-                                let imported = try store.importIntoLibrary(from: url)
+                                let imported = try await store.importIntoLibraryAsync(from: url)
                                 importedURLs.append(imported)
                             } catch {
                                 Log.error("Failed to import \(url.lastPathComponent)", category: .fileIO, error: error)
@@ -645,12 +646,14 @@ struct SheetsAndAlertsModifier: ViewModifier {
                                     do {
                                         let targetName =
                                             newName.isEmpty ? "Untitled.md" : newName
-                                        let url = try store.saveAs(
-                                            content: docText,
-                                            suggestedName: targetName
-                                        )
-                                        files = (try? store.listDocuments()) ?? []
-                                        await onOpen(url)
+                                        if let gcsStore = store as? GCSDocumentStore {
+                                            let url = try await gcsStore.saveAsAsync(
+                                                content: docText,
+                                                suggestedName: targetName
+                                            )
+                                            files = (try? store.listDocuments()) ?? []
+                                            await onOpen(url)
+                                        }
                                     } catch {
                                         errorMessage = error.localizedDescription
                                     }
@@ -750,6 +753,18 @@ struct SheetsAndAlertsModifier: ViewModifier {
                 }
             } message: {
                 Text(pendingDeleteURL?.lastPathComponent ?? "")
+            }
+
+            // Error alert
+            .alert("Error", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? "An unknown error occurred")
             }
     }
 }

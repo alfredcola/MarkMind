@@ -1,5 +1,5 @@
 {
-  "originHash" : "bc00b2b7db48bba96799bf03d2beeabd40edd24f029e362753a81d850c8b82a5",
+  "originHash" : "495e29c3783bbfeb251d4e25c99ce647ba0f0c40297c809195348bd92feaf06a",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "145104f5ea9d58ae21b60add007c33c1cc0c948e",
         "version" : "2.0.0"
+      }
+    },
+    {
+      "identity" : "automerge-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/automerge/automerge-swift",
+      "state" : {
+        "revision" : "aa45d17ac92cef2b8ded63b47e65a28dc85e3418",
+        "version" : "0.7.2"
       }
     },
     {

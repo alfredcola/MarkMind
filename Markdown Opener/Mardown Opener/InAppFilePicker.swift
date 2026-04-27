@@ -14,16 +14,20 @@ import UniformTypeIdentifiers
 import WebKit
 
 struct InAppFilePicker: View {
-    let documentStore: DocumentStore
+    let documentStore: GCSDocumentStore
     @Binding var selectedFiles: [(url: URL, content: String)]
     let docURL: URL
     var fileContentLoader: ((URL) throws -> String)? = nil
     @Environment(\.dismiss) var dismiss
     @State private var availableFiles: [URL] = []
+    @State private var availableFolders: [URL] = []
+    @State private var currentDirectory: URL? = nil
+    @State private var tagsCache: [URL: [Tag]] = [:]
     @State private var errorMessage: String?
     @State private var selectedTab = 0
     @State private var selectedFilter: FileFilter = .all
     @State private var fileSort: FileSort = .dateNew
+    @State private var showingDocumentPicker = false
 
     private enum FileGroup: String, CaseIterable {
         case markdown = "Markdown"
@@ -70,7 +74,6 @@ struct InAppFilePicker: View {
     var body: some View {
         NavigationView {
             VStack {
-                // Tab Picker
                 Picker("Source", selection: $selectedTab) {
                     Text(Localization.locWithUserPreference("In-App Files", "應用內檔案")).tag(0)
                     Text(Localization.locWithUserPreference("File Explorer", "檔案瀏覽器")).tag(1)
@@ -81,7 +84,7 @@ struct InAppFilePicker: View {
                 if selectedTab == 0 {
                     inAppFilesView
                 } else {
-                    fileExplorerView
+                    fileExplorerTabView
                 }
             }
             .navigationTitle(Localization.locWithUserPreference("Select Files (Max 10 files)", "選擇檔案 (最多10個檔案)"))
@@ -106,7 +109,39 @@ struct InAppFilePicker: View {
                     loadAvailableFiles()
                 }
             }
+            .sheet(isPresented: $showingDocumentPicker) {
+                FileExplorerView(
+                    selectedFiles: $selectedFiles,
+                    errorMessage: $errorMessage
+                )
+            }
         }
+    }
+
+    private var fileExplorerTabView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "folder")
+                .font(.system(size: 64))
+                .foregroundStyle(.quaternary)
+
+            Text("Select files from your device or iCloud")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            Button {
+                showingDocumentPicker = true
+            } label: {
+                Label("Browse Files", systemImage: "doc.badge.plus")
+                    .font(.headline)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 32)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     @EnvironmentObject var favorites: FavoritesManager
     @EnvironmentObject var tagsManager: TagsManager
@@ -154,14 +189,14 @@ struct InAppFilePicker: View {
         var allSections = Set<ExpandableSection>()
         allSections.insert(.starred)
 
-        let usedTags = Set(availableFiles.flatMap { tagsManager.tags(for: $0) })
+        let usedTags = Set(availableFiles.flatMap { cachedTags(for: $0) })
         for tag in tagsManager.allTags where usedTags.contains(tag) {
             allSections.insert(.tag(tag))
         }
 
         let presentGroups = Set(
             availableFiles
-                .filter { !favorites.isStarred($0) && tagsManager.tags(for: $0).isEmpty }
+                .filter { !favorites.isStarred($0) && cachedTags(for: $0).isEmpty }
                 .map { group(for: $0.pathExtension.lowercased()) }
         )
         for g in FileGroup.allCases where presentGroups.contains(g) && g != .other {
@@ -193,9 +228,9 @@ struct InAppFilePicker: View {
                         }
 
                     case .tags:
-                        let usedTags = Set(availableFiles.flatMap { tagsManager.tags(for: $0) })
+                        let usedTags = Set(availableFiles.flatMap { cachedTags(for: $0) })
                         ForEach(tagsManager.allTags.filter { usedTags.contains($0) }, id: \.id) { tag in
-                            let count = availableFiles.filter { tagsManager.tags(for: $0).contains(tag) }.count
+                            let count = availableFiles.filter { cachedTags(for: $0).contains(tag) }.count
                             groupChip(
                                 title: "\(tag.name)(\(count))",
                                 icon: "tag.fill",
@@ -289,17 +324,17 @@ struct InAppFilePicker: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                selectFile(url)
+                Task { await selectFile(url) }
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(url.lastPathComponent)
                         .font(.subheadline)
                         .lineLimit(2)
 
-                    if !tagsManager.tags(for: url).isEmpty {
+                    if !cachedTags(for: url).isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
-                                ForEach(tagsManager.tags(for: url)) { tag in
+                                ForEach(cachedTags(for: url)) { tag in
                                     Text(tag.name)
                                         .font(.caption2)
                                         .fontWeight(.medium)
@@ -346,6 +381,71 @@ struct InAppFilePicker: View {
 
             // Main List with collapsible sections
             List {
+                // 0. Folders section (when inside a folder or at root)
+                if currentDirectory != nil {
+                    Section {
+                        Button {
+                            navigateUp()
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.blue)
+                                Text("Go Up")
+                                    .font(.subheadline)
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        
+                        ForEach(availableFolders, id: \.self) { folderURL in
+                            Button {
+                                navigateToFolder(folderURL)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "folder.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.yellow)
+                                    Text(folderURL.lastPathComponent)
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    } header: {
+                        Label("Folders", systemImage: "folder.fill")
+                            .font(.headline)
+                    }
+                } else if !availableFolders.isEmpty {
+                    Section {
+                        ForEach(availableFolders, id: \.self) { folderURL in
+                            Button {
+                                navigateToFolder(folderURL)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "folder.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.yellow)
+                                    Text(folderURL.lastPathComponent)
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    } header: {
+                        Label("Folders", systemImage: "folder.fill")
+                            .font(.headline)
+                    }
+                }
+                
                 // 1. Starred files
                 if isExpanded(.starred) {
                     let starred = availableFiles.filter { favorites.isStarred($0) }
@@ -363,11 +463,11 @@ struct InAppFilePicker: View {
                 }
 
                 // 2. Tags
-                let usedTags = Set(availableFiles.flatMap { tagsManager.tags(for: $0) })
+                let usedTags = Set(availableFiles.flatMap { cachedTags(for: $0) })
                 ForEach(tagsManager.allTags.filter { usedTags.contains($0) }, id: \.id) { tag in
                     if isExpanded(.tag(tag)) {
                         let taggedFiles = availableFiles.filter {
-                            tagsManager.tags(for: $0).contains(tag) && !favorites.isStarred($0)
+                            cachedTags(for: $0).contains(tag) && !favorites.isStarred($0)
                         }
                         if !taggedFiles.isEmpty {
                             Section {
@@ -385,7 +485,7 @@ struct InAppFilePicker: View {
 
                 // 3. File Type Groups (only non-starred/non-tagged)
                 let remainingFiles = availableFiles.filter {
-                    !favorites.isStarred($0) && tagsManager.tags(for: $0).isEmpty
+                    !favorites.isStarred($0) && cachedTags(for: $0).isEmpty
                 }
                 let visibleGroups = Set(remainingFiles.map { group(for: $0.pathExtension.lowercased()) })
                     .filter { $0 != .other }
@@ -426,9 +526,22 @@ struct InAppFilePicker: View {
 
     private func loadAvailableFiles() {
         do {
-            availableFiles = try documentStore.listDocuments().filter {
-                $0 != docURL
+            let items = try documentStore.listAllItems(in: currentDirectory)
+            let filteredItems = items.filter { item in
+                if item.isDirectory { return true }
+                return item.url != docURL
             }
+            
+            availableFolders = filteredItems.filter { $0.isDirectory }.map { $0.url }
+            let files = filteredItems.filter { !$0.isDirectory }.map { $0.url }
+            availableFiles = files
+            
+            // Pre-populate tags cache
+            var cache: [URL: [Tag]] = [:]
+            for url in files {
+                cache[url] = tagsManager.tags(for: url)
+            }
+            tagsCache = cache
         } catch {
             errorMessage = Localization.locWithUserPreference(
                 "Failed to load files: \(error.localizedDescription)",
@@ -436,13 +549,31 @@ struct InAppFilePicker: View {
             )
         }
     }
+    
+    private func navigateToFolder(_ folder: URL) {
+        currentDirectory = folder
+        loadAvailableFiles()
+    }
+    
+    private func navigateUp() {
+        currentDirectory = currentDirectory?.deletingLastPathComponent()
+        loadAvailableFiles()
+    }
+    
+    private var currentFolderName: String {
+        currentDirectory?.lastPathComponent ?? "Documents"
+    }
+    
+    private func cachedTags(for url: URL) -> [Tag] {
+        tagsCache[url] ?? tagsManager.tags(for: url)
+    }
 
-    private func selectFile(_ url: URL) {
+    private func selectFile(_ url: URL) async {
         if selectedFiles.contains(where: { $0.url == url }) {
             selectedFiles.removeAll { $0.url == url }
         } else if selectedFiles.count < 10 {
             do {
-                let data = try documentStore.load(url)
+                let data = try await documentStore.loadAsync(url)
                 let content =
                     data.text.isEmpty && url.pathExtension.lowercased() == "ppt"
                     ? Localization.locWithUserPreference(
@@ -564,9 +695,10 @@ struct InAppFilePicker: View {
 struct FileExplorerView: UIViewControllerRepresentable {
     @Binding var selectedFiles: [(url: URL, content: String)]
     @Binding var errorMessage: String?
-
+    @Environment(\.dismiss) var dismiss
+    
     func makeUIViewController(context: Context)
-        -> UIDocumentPickerViewController
+    -> UIDocumentPickerViewController
     {
         let supportedTypes: [UTType] = [
             .plainText,  // .txt
@@ -579,25 +711,25 @@ struct FileExplorerView: UIViewControllerRepresentable {
         ]
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: supportedTypes,
-            asCopy: true
+            asCopy: false
         )
         picker.allowsMultipleSelection = true
         picker.delegate = context.coordinator
         return picker
     }
-
+    
     func updateUIViewController(
         _ uiViewController: UIDocumentPickerViewController,
         context: Context
     ) {}
-
+    
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
-
+    
     class Coordinator: NSObject, UIDocumentPickerDelegate {
         let parent: FileExplorerView
-        let documentStore = DocumentStore.shared
+        let documentStore = GCSDocumentStore.shared
 
         init(parent: FileExplorerView) {
             self.parent = parent
@@ -607,64 +739,77 @@ struct FileExplorerView: UIViewControllerRepresentable {
             _ controller: UIDocumentPickerViewController,
             didPickDocumentsAt urls: [URL]
         ) {
-            for url in urls {
-                guard parent.selectedFiles.count < 10 else {
-                    parent.errorMessage = Localization.locWithUserPreference(
-                        "Maximum 10 files can be selected",
-                        "最多只能選擇10個檔案"
-                    )
-                    return
-                }
-
-                do {
-                    // Start accessing the security-scoped resource
-                    guard url.startAccessingSecurityScopedResource() else {
-                        throw NSError(
-                            domain: "FileAccess",
-                            code: -1,
-                            userInfo: [
-                                NSLocalizedDescriptionKey:
-                                    "Cannot access file: \(url.lastPathComponent)"
-                            ]
+            Log.info("documentPicker called with \(urls.count) URLs", category: .fileIO)
+            Task {
+                for url in urls {
+                    Log.info("Processing URL: \(url.path)", category: .fileIO)
+                    guard parent.selectedFiles.count < 10 else {
+                        parent.errorMessage = Localization.locWithUserPreference(
+                            "Maximum 10 files can be selected",
+                            "最多只能選擇10個檔案"
                         )
+                        parent.dismiss()
+                        return
                     }
 
-                    // Use DocumentStore to load file content
-                    let data = try documentStore.load(url)
-                    let content =
+                    var shouldStopAccess = false
+                    if url.startAccessingSecurityScopedResource() {
+                        shouldStopAccess = true
+                        Log.info("Security scoped resource access granted", category: .fileIO)
+                    } else {
+                        Log.warning("Failed to get security scoped resource access for: \(url.path)", category: .fileIO)
+                    }
+                    defer {
+                        if shouldStopAccess {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
+
+                    do {
+                        Log.info("Calling importIntoLibraryAsync for: \(url.lastPathComponent)", category: .fileIO)
+                        let importedURL = try await documentStore.importIntoLibraryAsync(from: url)
+                        Log.info("Import succeeded, importedURL: \(importedURL.path)", category: .fileIO)
+
+                        let data = try await documentStore.loadAsync(importedURL)
+                        Log.info("Loaded data, text length: \(data.text.count)", category: .fileIO)
+                        let content =
                         data.text.isEmpty
-                            && (url.pathExtension.lowercased() == "ppt"
-                                || url.pathExtension.lowercased() == "pptx"
-                                    && data.text.isEmpty)
+                        && (url.pathExtension.lowercased() == "ppt"
+                            || url.pathExtension.lowercased() == "pptx"
+                            && data.text.isEmpty)
                         ? Localization.locWithUserPreference(
                             "This file type may have limited text extraction.",
                             "此檔案類型可能文字提取有限。"
                         )
                         : data.text
-                    parent.selectedFiles.append((url: url, content: content))
-
-                    url.stopAccessingSecurityScopedResource()
-                } catch {
-                    let message: String
-                    if url.pathExtension.lowercased() == "ppt" {
-                        message = Localization.locWithUserPreference(
-                            "Legacy .ppt files are not supported: \(error.localizedDescription)",
-                            "舊版 .ppt 檔案不支援：\(error.localizedDescription)"
-                        )
-                    } else {
-                        message = Localization.locWithUserPreference(
-                            "Failed to load \(url.lastPathComponent): \(error.localizedDescription)",
-                            "無法載入 \(url.lastPathComponent)：\(error.localizedDescription)"
-                        )
+                        parent.selectedFiles.append((url: importedURL, content: content))
+                        Log.info("File added to selectedFiles", category: .fileIO)
+                    } catch {
+                        Log.error("Import failed: \(error.localizedDescription)", category: .fileIO, error: error)
+                        let message: String
+                        if url.pathExtension.lowercased() == "ppt" {
+                            message = Localization.locWithUserPreference(
+                                "Legacy .ppt files are not supported: \(error.localizedDescription)",
+                                "舊版 .ppt 檔案不支援：\(error.localizedDescription)"
+                            )
+                        } else {
+                            message = Localization.locWithUserPreference(
+                                "Failed to import \(url.lastPathComponent): \(error.localizedDescription)",
+                                "無法匯入 \(url.lastPathComponent)：\(error.localizedDescription)"
+                            )
+                        }
+                        parent.errorMessage = message
                     }
-                    parent.errorMessage = message
                 }
+                parent.dismiss()
             }
         }
 
         func documentPickerWasCancelled(
             _ controller: UIDocumentPickerViewController
         ) {
+            Log.info("Document picker cancelled", category: .fileIO)
+            parent.dismiss()
         }
     }
 }

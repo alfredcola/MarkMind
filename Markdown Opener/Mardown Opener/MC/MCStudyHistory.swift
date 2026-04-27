@@ -10,44 +10,57 @@ import Combine
 @MainActor
 class MCStudyHistory: ObservableObject {
     static let shared = MCStudyHistory()
-    
+
     @Published var results: [MCStudyResult] = [] {
         didSet {
             if results.count > Constants.Limits.maxMCStudyHistoryResults {
                 results = Array(results.prefix(Constants.Limits.maxMCStudyHistoryResults))
             }
-            save()
+            scheduleSave()
         }
     }
-    
+
+    private var pendingSaveTask: Task<Void, Never>?
+    private var isInitialized = false
+
     private init() {
         load()
+        isInitialized = true
     }
-    
+
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: "MCStudyHistory") else { return }
-        
-        // Try new format first
+
         if let decoded = try? JSONDecoder().decode([MCStudyResult].self, from: data) {
-            results = decoded.sorted { $1.date > $0.date }
+            results = decoded
             return
         }
-        
-        // If failed, clear old corrupted data
+
         UserDefaults.standard.removeObject(forKey: "MCStudyHistory")
         results = []
     }
-    
+
+    private func scheduleSave() {
+        guard isInitialized else { return }
+
+        pendingSaveTask?.cancel()
+        pendingSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            save()
+        }
+    }
+
     private func save() {
         if let encoded = try? JSONEncoder().encode(results) {
             UserDefaults.standard.set(encoded, forKey: "MCStudyHistory")
         }
     }
-    
+
     func delete(_ result: MCStudyResult) {
         results.removeAll { $0.id == result.id }
     }
-    
+
     func deleteAll() {
         results.removeAll()
     }
@@ -277,46 +290,48 @@ struct MCResultDetailView: View {
                 .background(Color.secondary.opacity(0.1))
                 .cornerRadius(12)
                 
-                ForEach(result.cards.indices, id: \.self) { i in
-                    let card = result.cards[i]
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(card.question)
-                            .font(.headline)
-                        
-                        ForEach(0..<4) { idx in
-                            HStack {
-                                Text(["A", "B", "C", "D"][idx])
-                                    .font(.headline)
-                                    .frame(width: 30)
-                                    .foregroundColor(.white)
-                                    .background(Circle().fill(backgroundColor(for: idx, card: card)))
-                                
-                                Text(card.options[idx])
-                                    .foregroundColor(textColor(for: idx, card: card))
-                                
-                                Spacer()
-                                
-                                if idx == card.correctIndex {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                }
-                                if idx == card.userIndex && card.userIndex != card.correctIndex {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.red)
+                    ForEach(result.cards.indices, id: \.self) { i in
+                        let card = result.cards[i]
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(card.question)
+                                .font(.headline)
+
+                            ForEach(0..<card.options.count, id: \.self) { idx in
+                                HStack {
+                                    Text(["A", "B", "C", "D"][idx])
+                                        .font(.headline)
+                                        .frame(width: 30)
+                                        .foregroundColor(.white)
+                                        .background(Circle().fill(backgroundColor(for: idx, card: card)))
+
+                                    Text(card.options[idx])
+                                        .foregroundColor(textColor(for: idx, card: card))
+
+                                    Spacer()
+
+                                    if card.correctIndices?.contains(idx) ?? (idx == card.correctIndex) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                    }
+                                    if card.userIndices?.contains(idx) ?? (idx == card.userIndex && !card.isCorrect) {
+                                        if !(card.correctIndices?.contains(idx) ?? (idx == card.correctIndex)) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundColor(.red)
+                                        }
+                                    }
                                 }
                             }
+
+                            if let exp = card.explanation, !exp.isEmpty {
+                                Divider()
+                                NativeMarkdownView2(markdown: exp,ttsEnabled: .constant(MultiSettingsViewModel.shared.ttsEnabled))
+                                    .padding(.top, 4)
+                            }
                         }
-                        
-                        if let exp = card.explanation, !exp.isEmpty {
-                            Divider()
-                            NativeMarkdownView2(markdown: exp,ttsEnabled: .constant(MultiSettingsViewModel.shared.ttsEnabled))
-                                .padding(.top, 4)
-                        }
+                        .padding()
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(12)
                     }
-                    .padding()
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .cornerRadius(12)
-                }
             }
             .padding()
         }

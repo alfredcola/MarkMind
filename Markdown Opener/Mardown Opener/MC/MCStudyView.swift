@@ -18,15 +18,16 @@ struct MCStudyView: View {
     @ObservedObject var session: MCSession
     @EnvironmentObject var mcStore: MCStore
     @ObservedObject var rewardedAdManager = RewardedAdManager.shared
-
+    
     typealias ChineseTTSDelegate = TTSUtils.ChineseTTSDelegate
-
+    
     let docURL: URL?
     let docText: String?
     
     var onGenerate: (() async -> Void)? = nil
     
     @State var selectedIndex: Int? = nil
+    @State var selectedIndices: Set<Int> = []
     @State var showResult: Bool = false
     @State var isCorrect: Bool = false
     @State var gradingFeedback: String = ""
@@ -149,20 +150,20 @@ struct MCStudyView: View {
     // MARK: - Spaced Repetition System
     func calculateSRScore(for card: MCcard) -> Double {
         let baseScore = 1.0
-
+        
         let accuracyRate = card.timesSeen > 0
         ? Double(card.timesCorrect) / Double(card.timesSeen)
         : 0.5
-
+        
         let recencyWeight: Double
         if let lastAttempt = card.lastAttemptDate {
             recencyWeight = max(0, 1.0 - Date().timeIntervalSince(lastAttempt) / (7 * 24 * 60 * 60))
         } else {
             recencyWeight = 0.0
         }
-
+        
         let difficultyWeight = 1.0 - accuracyRate
-
+        
         return baseScore * (0.3 + recencyWeight * 0.3 + difficultyWeight * 0.4)
     }
     
@@ -178,7 +179,7 @@ struct MCStudyView: View {
             return accuracy < threshold
         }
     }
-
+    
     
     // MARK: - Error Review Mode
     func startErrorReviewMode() {
@@ -977,7 +978,7 @@ struct MCStudyView: View {
                 }
             }
         }
-
+        
         .sheet(isPresented: $showStreakBanner) {
             VStack(spacing: 16) {
                 Image(systemName: "flame.fill")
@@ -1004,15 +1005,15 @@ struct MCStudyView: View {
         
         let chunks = TTSUtils.computeTTSChunks(from: cleanText, isChinese: isChinese)
         if chunks.isEmpty { return }
-
+        
         ttsChunks = chunks
         ttsCurrentChunkIndex = 0
         ttsIsPlaying = true
         ttsSpokenSoFar = ""
-
+        
         playCurrentTTSChunk()
     }
-
+    
     func playCurrentTTSChunk() {
         guard ttsIsPlaying, ttsCurrentChunkIndex < ttsChunks.count else {
             finishTTSPlayback()
@@ -1162,6 +1163,7 @@ struct MCStudyView: View {
     
     func resetCardState() {
         selectedIndex = nil
+        selectedIndices = []
         showResult = false
         isCorrect = false
         gradingFeedback = ""
@@ -1183,13 +1185,23 @@ struct MCStudyView: View {
         
         let resultCards = session.cards.map { card -> MCcardResult in
             let userIdx = card.lastUserIndex
-            let isCorrect = userIdx == card.correctIndex
+            let isCorrectFlag: Bool
+            if card.questionType == .multiSelect {
+                let correctSet = Set(card.correctIndices ?? [card.correctIndex])
+                let userSet = Set(card.lastUserIndices ?? [])
+                isCorrectFlag = correctSet == userSet
+            } else {
+                isCorrectFlag = userIdx == card.correctIndex
+            }
             return MCcardResult(
                 question: card.question,
                 options: card.options,
                 correctIndex: card.correctIndex,
+                correctIndices: card.correctIndices,
+                questionType: card.questionType,
                 userIndex: userIdx,
-                isCorrect: isCorrect,
+                userIndices: card.lastUserIndices,
+                isCorrect: isCorrectFlag,
                 explanation: card.explanation
             )
         }
@@ -1216,22 +1228,13 @@ struct MCStudyView: View {
             }
         }
         
-        var allResults = MCStudyHistory.shared.results
-        allResults.append(result)
-        allResults.sort { $1.date > $0.date }
-        
-        if let data = try? JSONEncoder().encode(allResults) {
-            UserDefaults.standard.set(data, forKey: "MCStudyHistory")
-        }
-        
-        MCStudyHistory.shared.results = allResults
+        MCStudyHistory.shared.results.append(result)
     }
     
     func submitAnswer(userChoiceIndex: Int, card: MCcard) async {
         let isCorrectAnswer = userChoiceIndex == card.correctIndex
         
         await MainActor.run {
-            // Update performance tracking on the card
             if let idx = session.cards.firstIndex(where: { $0.id == card.id }) {
                 session.cards[idx].timesSeen += 1
                 if isCorrectAnswer {
@@ -1246,10 +1249,8 @@ struct MCStudyView: View {
                 session.cards[idx].lastAttemptDate = Date()
             }
             
-            // Update session scoring (10 marks for correct)
             session.applyMark(isCorrect: isCorrectAnswer, for: card.id)
             
-            // UI feedback
             selectedIndex = userChoiceIndex
             showResult = true
             isCorrect = isCorrectAnswer
@@ -1258,7 +1259,59 @@ struct MCStudyView: View {
             ? "Correct! 🎉"
             : "Incorrect — Correct answer: \(card.correctAnswer)"
             
-            // Persist cards
+            saveCardsToStore()
+        }
+    }
+    
+    func submitAnswerMulti(userChoiceIndex: Int, userChoiceIndices: Set<Int>, card: MCcard) async {
+        let isCorrectAnswer: Bool
+        let partialCredit: Double
+        
+        if card.questionType == .trueFalse {
+            isCorrectAnswer = userChoiceIndex == card.correctIndex
+            partialCredit = isCorrectAnswer ? 1.0 : 0.0
+        } else if card.questionType == .multiSelect {
+            partialCredit = card.calculatePartialCredit(userSelected: userChoiceIndices)
+            isCorrectAnswer = userChoiceIndices == Set(card.correctIndices ?? [card.correctIndex])
+        } else {
+            isCorrectAnswer = userChoiceIndex == card.correctIndex
+            partialCredit = isCorrectAnswer ? 1.0 : 0.0
+        }
+        
+        await MainActor.run {
+            if let idx = session.cards.firstIndex(where: { $0.id == card.id }) {
+                session.cards[idx].timesSeen += 1
+                if partialCredit >= 1.0 {
+                    session.cards[idx].timesCorrect += 1
+                    session.cards[idx].consecutiveCorrect += 1
+                } else if partialCredit > 0 {
+                    session.cards[idx].consecutiveCorrect = 0
+                } else {
+                    session.cards[idx].consecutiveCorrect = 0
+                }
+                session.cards[idx].lastUserIndex = userChoiceIndex
+                session.cards[idx].lastUserIndices = Array(userChoiceIndices)
+                if partialCredit >= 1.0 {
+                    session.cards[idx].lastFeedback = "Correct!"
+                } else if partialCredit > 0 {
+                    session.cards[idx].lastFeedback = "Partially correct (\(Int(partialCredit * 100))%)"
+                } else {
+                    session.cards[idx].lastFeedback = "Incorrect"
+                }
+                session.cards[idx].lastAttemptDate = Date()
+            }
+            
+            let mark = Int(10.0 * partialCredit)
+            session.totalAttempts += 1
+            session.totalMarks += mark
+            session.perCardMarks[card.id] = mark
+            
+            selectedIndex = userChoiceIndex
+            selectedIndices = userChoiceIndices
+            showResult = true
+            isCorrect = isCorrectAnswer
+            gradingFeedback = partialCredit >= 1.0 ? "Correct! 🎉" : (partialCredit > 0 ? "Partially correct (\(Int(partialCredit * 100))%)" : "Incorrect — Correct: \(card.correctAnswer)")
+            
             saveCardsToStore()
         }
     }
@@ -1330,12 +1383,12 @@ struct MCStudyView: View {
                             .foregroundColor(.secondary)
                         Spacer()
                         if !customPrompt.isEmpty {
-                            Button("Clear") { 
+                            Button("Clear") {
                                 customPrompt = ""
                                 UserDefaults.standard.removeObject(forKey: "LastCustomMCPrompt")
                             }
-                                .font(.caption)
-                                .foregroundColor(.red.opacity(0.8))
+                            .font(.caption)
+                            .foregroundColor(.red.opacity(0.8))
                         }
                     }
                     
@@ -1490,7 +1543,7 @@ struct MCStudyView: View {
             .sheet(isPresented: $showFilePicker) {
                 if let url = docURL {
                     InAppFilePicker(
-                        documentStore: DocumentStore.shared,
+                        documentStore: GCSDocumentStore.shared,
                         selectedFiles: $selectedFiles,
                         docURL: url
                     )
@@ -1499,163 +1552,205 @@ struct MCStudyView: View {
         }
         
     }
+    
+    func removeSelectedFile(_ url: URL) {
+        selectedFiles.removeAll { $0.url == url }
+    }
+    
+    func startGeneration() async {
+        guard !isGenerating else { return }
+        isGenerating = true
+        countdownRemaining = generationTotalSeconds
+        showIndefiniteSpinner = false
         
-        func removeSelectedFile(_ url: URL) {
-            selectedFiles.removeAll { $0.url == url }
-        }
-        
-        func startGeneration() async {
-            guard !isGenerating else { return }
-            isGenerating = true
-            countdownRemaining = generationTotalSeconds
-            showIndefiniteSpinner = false
-            
-            Task {
-                while countdownRemaining > 0 && session.cards.isEmpty {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    await MainActor.run { countdownRemaining -= 1 }
-                }
-                await MainActor.run {
-                    showIndefiniteSpinner = session.cards.isEmpty
-                }
+        Task {
+            while countdownRemaining > 0 && session.cards.isEmpty {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await MainActor.run { countdownRemaining -= 1 }
             }
-            
-            await generateMCsLocal(regenerate: false)
-        }
-        
-        var latestStudyResult: [MCStudyResult] {
-            guard let url = docURL else { return [] }
-            let documentName = url.lastPathComponent
-            return MCStudyHistory.shared.results
-                .filter { $0.documentName == documentName }
-                .sorted { $1.date < $0.date }
-                .prefix(2)
-                .map { $0 }
-        }
-        
-        @MainActor
-        func deductCoinIfPossible() -> Bool {
-            // First, check if user has enough coins
-            let success = RewardedAdManager.shared.spendCoins(1)
-            
-            if success {
-                return true
+            await MainActor.run {
+                showIndefiniteSpinner = session.cards.isEmpty
             }
-            
-            let isSubscribed = SubscriptionManager.shared.isSubscribed
-            
-            if isSubscribed {
-                errorMessage = Localization.locWithUserPreference(
-                    "Not enough coins. Buy coins, or watch an ad to earn more!",
-                    "硬幣不足。購買硬幣，或觀看廣告賺取更多！"
+        }
+        
+        await generateMCsLocal(regenerate: false)
+    }
+    
+    var latestStudyResult: [MCStudyResult] {
+        guard let url = docURL else { return [] }
+        let documentName = url.lastPathComponent
+        return MCStudyHistory.shared.results
+            .filter { $0.documentName == documentName }
+            .sorted { $1.date < $0.date }
+            .prefix(2)
+            .map { $0 }
+    }
+    
+    @MainActor
+    func deductCoinIfPossible() -> Bool {
+        // First, check if user has enough coins
+        let success = RewardedAdManager.shared.spendCoins(1)
+        
+        if success {
+            return true
+        }
+        
+        let isSubscribed = SubscriptionManager.shared.isSubscribed
+        
+        if isSubscribed {
+            errorMessage = Localization.locWithUserPreference(
+                "Not enough coins. Buy coins, or watch an ad to earn more!",
+                "硬幣不足。購買硬幣，或觀看廣告賺取更多！"
+            )
+        } else {
+            errorMessage = Localization.locWithUserPreference(
+                "Not enough coins. Subscribe to Premium for 100 coins/month (ad-free!), buy coins, or watch an ad to earn more!",
+                "硬幣不足。訂閱 Premium 每月獲得 100 硬幣（無廣告！）、購買硬幣，或觀看廣告賺取更多！"
+            )
+        }
+        
+        // Haptic feedback
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        
+        return false
+    }
+    
+    func generateMCsLocal(regenerate: Bool = false) async {
+        // Early validation — no coin spent yet
+        if let err = validateMCInputs() {
+            await MainActor.run { errorMessage = err }
+            return
+        }
+        
+        do {
+            try await CoinProtection.withCoinProtected(actionDescription: "MC card generation") {
+                
+                var sourceTextBuffer =
+                "### SECTION 1: MANDATORY SOURCE DOCUMENTS ###\n"
+                
+                let primarySnapshot = (docText ?? "").trimmingCharacters(
+                    in: .whitespacesAndNewlines
                 )
-            } else {
-                errorMessage = Localization.locWithUserPreference(
-                    "Not enough coins. Subscribe to Premium for 100 coins/month (ad-free!), buy coins, or watch an ad to earn more!",
-                    "硬幣不足。訂閱 Premium 每月獲得 100 硬幣（無廣告！）、購買硬幣，或觀看廣告賺取更多！"
-                )
-            }
-            
-            // Haptic feedback
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-
-            return false
-        }
-
-        func generateMCsLocal(regenerate: Bool = false) async {
-            // Early validation — no coin spent yet
-            if let err = validateMCInputs() {
-                await MainActor.run { errorMessage = err }
-                return
-            }
-            
-            do {
-                try await CoinProtection.withCoinProtected(actionDescription: "MC card generation") {
-                    
-                    var sourceTextBuffer =
-                    "### SECTION 1: MANDATORY SOURCE DOCUMENTS ###\n"
-                    
-                    let primarySnapshot = (docText ?? "").trimmingCharacters(
+                if !primarySnapshot.isEmpty {
+                    sourceTextBuffer +=
+                    "[PRIMARY_DOC]: \(String(primarySnapshot.prefix(100_000)))\n\n"
+                }
+                
+                for (index, file) in selectedFiles.enumerated() {
+                    let trimmed = file.content.trimmingCharacters(
                         in: .whitespacesAndNewlines
                     )
-                    if !primarySnapshot.isEmpty {
-                        sourceTextBuffer +=
-                        "[PRIMARY_DOC]: \(String(primarySnapshot.prefix(100_000)))\n\n"
-                    }
+                    guard !trimmed.isEmpty else { continue }
+                    sourceTextBuffer +=
+                    "[FILE_\(index + 1)_\(file.url.lastPathComponent)]: \(trimmed.prefix(100_000))\n\n"
+                }
+                
+                // ── 2. ENHANCED HISTORY & WEAKNESS MAPPING ──
+                var historyBuffer = "### SECTION 2: EXCLUSION & FOCUS RULES ###\n"
+                let results = latestStudyResult
+                
+                if !results.isEmpty {
+                    let previousQuestions = Set(
+                        results.flatMap { $0.cards.map { $0.question } }
+                    )
+                    historyBuffer +=
+                    "REPETITION_PENALTY: The following questions are in the user's brain already. DO NOT use these topics or logic.\n"
+                    historyBuffer +=
+                    Array(previousQuestions.prefix(30)).map { "- \($0)" }
+                        .joined(separator: "\n") + "\n\n"
                     
-                    for (index, file) in selectedFiles.enumerated() {
-                        let trimmed = file.content.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                        guard !trimmed.isEmpty else { continue }
-                        sourceTextBuffer +=
-                        "[FILE_\(index + 1)_\(file.url.lastPathComponent)]: \(trimmed.prefix(100_000))\n\n"
-                    }
-                    
-                    // ── 2. ENHANCED HISTORY & WEAKNESS MAPPING ──
-                    var historyBuffer = "### SECTION 2: EXCLUSION & FOCUS RULES ###\n"
-                    let results = latestStudyResult
-                    
-                    if !results.isEmpty {
-                        let previousQuestions = Set(
-                            results.flatMap { $0.cards.map { $0.question } }
-                        )
-                        historyBuffer +=
-                        "REPETITION_PENALTY: The following questions are in the user's brain already. DO NOT use these topics or logic.\n"
-                        historyBuffer +=
-                        Array(previousQuestions.prefix(30)).map { "- \($0)" }
-                            .joined(separator: "\n") + "\n\n"
-                        
-                        if useHistory {
-                            let weakAreas = results.flatMap {
-                                $0.cards.filter { !$0.isCorrect }.prefix(5).map {
-                                    $0.question
-                                }
+                    if useHistory {
+                        let weakAreas = results.flatMap {
+                            $0.cards.filter { !$0.isCorrect }.prefix(5).map {
+                                $0.question
                             }
-                            historyBuffer +=
-                            "ADAPTIVE_FOCUS: The user failed the following concepts recently. Generate NEW, harder questions that test the same underlying principles from a different angle:\n"
-                            historyBuffer +=
-                            weakAreas.map { "- REINFORCE: \($0)" }.joined(
-                                separator: "\n"
-                            ) + "\n"
                         }
+                        historyBuffer +=
+                        "ADAPTIVE_FOCUS: The user failed the following concepts recently. Generate NEW, harder questions that test the same underlying principles from a different angle:\n"
+                        historyBuffer +=
+                        weakAreas.map { "- REINFORCE: \($0)" }.joined(
+                            separator: "\n"
+                        ) + "\n"
                     }
-                    
-                    let userPrompt = sourceTextBuffer + "\n" + historyBuffer
-                    
-                    // ── 3. REFINED SYSTEM CONTENT ──
-                    let trimmedCustom = customPrompt.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                    
-                    let isChinese = selectedLanguage == .traditionalChinese
-                    let langInstruction = isChinese
-                        ? "\n所有題目和選項必須使用正體中文。"
-                        : "\nAll questions and options must be in English."
-                    
-                    let outputFormat = isChinese
-                        ? """
+                }
+                
+                let userPrompt = sourceTextBuffer + "\n" + historyBuffer
+                
+                // ── 3. REFINED SYSTEM CONTENT ──
+                let trimmedCustom = customPrompt.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                
+                let isChinese = selectedLanguage == .traditionalChinese
+                let langInstruction = isChinese
+                ? "\n所有題目和選項必須使用正體中文。"
+                : "\nAll questions and options must be in English."
+                
+                let outputFormat = isChinese
+                ? """
+                        [SINGLE]
                         Q: [直接提問]
                         A) [選項]
                         B) [選項]
                         C) [選項]
                         D) [選項]
                         Correct: [字母]
+                        
+                        [MULTI]
+                        Q: [直接提問，可多選]
+                        A) [選項]
+                        B) [選項]
+                        C) [選項]
+                        D) [選項]
+                        Correct: [字母,字母] 例如: A,C
+                        
+                        [TF]
+                        Q: [直接提問]
+                        A) True
+                        B) False
+                        Correct: [A或B]
                         """
-                        : """
+                : """
+                        [SINGLE]
                         Q: [Direct Question]
                         A) [Option]
                         B) [Option]
                         C) [Option]
                         D) [Option]
                         Correct: [Letter]
+                        
+                        [MULTI]
+                        Q: [Direct Question, multiple correct]
+                        A) [Option]
+                        B) [Option]
+                        C) [Option]
+                        D) [Option]
+                        Correct: [Letter,Letter] e.g.: A,C
+                        
+                        [TF]
+                        Q: [Direct Statement]
+                        A) True
+                        B) False
+                        Correct: [A or B]
                         """
-                    
-                    var systemContent = """
+                
+                var systemContent = """
                     ### ROLE
-                    You are a Lead Psychometrician and Subject Matter Expert. Your mission is to transform raw technical documentation into a rigorous, 20-item professional certification practice exam.
+                    You are a Lead Psychometrician and Subject Matter Expert. Your mission is to transform raw technical documentation into a rigorous, professional certification practice exam.
                     
                     \(langInstruction)
+                    
+                    ### QUESTION DISTRIBUTION (20 Questions Total)
+                    - **8 Single-Select Questions**: Choose ONE correct answer from A, B, C, D
+                    - **8 Multi-Select Questions**: Choose ALL correct answers (format: A,C or B,D)
+                    - **4 True/False Questions**: Determine if the statement is True or False
+                    
+                    ### CRITICAL CONTENT MATCHING RULE
+                    **STRICT REQUIREMENT**: EVERY question must be DIRECTLY and VERIFIABLY derived from the provided document content in SECTION 1. You must:
+                    1. Extract specific facts, definitions, or concepts EXACTLY as stated in the document
+                    2. Create questions where the answer can be proven by the document text
+                    3. If no document evidence exists for a topic, DO NOT generate a question about it
+                    4. Distractors must use actual terms/concepts from the document, not invented ones
                     
                     ### 1. THE "ZERO-FLUFF" PHRASING PROTOCOL
                     - **No Lead-ins**: Completely ban phrases like "Based on the text," "In the document," "According to,"
@@ -1668,321 +1763,465 @@ struct MCStudyView: View {
                     - **Non-Overlap**: Ensure no two options mean the same thing.
                     - **Prohibited Distractors**: Never use "All of the above," "None of the above,"
                     
-                    ### 3. QUALITY CONTROL
-                    - Each question must target different content from the document
-                    - Questions must be independent and self-contained
+                    ### 3. SINGLE-SELECT QUESTIONS
+                    - Format: Q:, A), B), C), D), Correct: [Letter]
+                    - One and only one correct answer
                     
-                    ### 4. OUTPUT SCHEMA (STRICT)
+                    ### 4. MULTI-SELECT QUESTIONS
+                    - Format: [MULTI], Q:, A), B), C), D), Correct: [Letter,Letter]
+                    - Two or more correct answers required
+                    - Partial credit awarded for partial correctness
+                    
+                    ### 5. TRUE/FALSE QUESTIONS
+                    - Format: [TF], Q:, A) True, B) False, Correct: [A or B]
+                    - Statement must be definitively true or false based on document
+                    
+                    ### 6. QUALITY CONTROL
+                    - Each question must target DIFFERENT content from the document
+                    - Questions must be independent and self-contained
+                    - All answers must be verifiable from the provided document
+                    
+                    ### 7. OUTPUT SCHEMA (STRICT)
                     \(outputFormat)
                     
-                    (One blank line between cards. No bolding, no asterisks, no numbering.)
+                    (One blank line between cards. No bolding, no asterisks, no numbering. Follow the exact format above.)
                     
                     \(selectedLanguage.promptInstruction)
                     
                     ### USER SPECIFIC CONSTRAINTS
                     \(trimmedCustom.isEmpty ? "None." : "ADDITIONAL RULE: " + trimmedCustom)
                     """
-                    
-                    // ── 4. API EXECUTION ──
-                    let apiKey =
-                    (ProcessInfo.processInfo.environment["MINIMAX_API_KEY"]
-                     ?? (Bundle.main.object(
-                        forInfoDictionaryKey: "MiniMaxAPIKey"
-                     ) as? String) ?? "")
-                    
-                    Log.debug("API Key present: \(!apiKey.isEmpty)", category: .network)
-                    
-                    guard !apiKey.isEmpty else {
-                        throw NSError(domain: "APIError", code: -1, userInfo: [
-                            NSLocalizedDescriptionKey: "MiniMax API key is empty. Please set it in Settings."
-                        ])
-                    }
-                    
-                    Log.debug("Sending request to MiniMax", category: .network)
-                    let (replyContent, _) = try await MiniMaxService.chat(
-                        apiKey: apiKey,
-                        messages: [
-                            .init(role: .system, content: systemContent),
-                            .init(role: .user, content: userPrompt),
-                        ],
-                        temperature: 0.1,
-                        maxTokens: Constants.API.maxTokensStandard
-                    )
-                    
-                    // ── 5. UI & PERSISTENCE ──
-                    let cards = parseMCMCs(from: replyContent)
-                    Log.debug("Parsed \(cards.count) cards", category: .data)
-                    
-                    if let url = docURL { try mcStore.save(cards, for: url) }
-                    
-                    // Force UI update with delay
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    
-                    await MainActor.run {
-                        session.cards = cards
-                        session.index = 0
-                        session.done = false
-                        Log.debug("Session updated: cards=\(cards.count)", category: .data)
-                    }
-                    
-                    // Another small delay to ensure UI refreshes
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    
-                    await MainActor.run {
-                        if !trimmedCustom.isEmpty {
-                            UserDefaults.standard.set(
-                                trimmedCustom,
-                                forKey: "LastCustomMCPrompt"
-                            )
-                        }
-                    }
-                }
-            } catch {
-                Log.error("MC Generation Error", category: .network, error: error)
-                await MainActor.run {
-                    errorMessage = Localization.locWithUserPreference(
-                        "Failed to generate MC cards: \(error.localizedDescription). Coin has been refunded.",
-                        "生成題目失敗：\(error.localizedDescription)。已退還硬幣。"
-                    )
-                }
-            }
-            
-            await MainActor.run {
-                isGenerating = false
-                showIndefiniteSpinner = false
-            }
-        }
-        
-        // MARK: - Progress Bar with Animation
-        func progressBarView() -> some View {
-            VStack(spacing: 8) {
-                let current = session.index + 1
-                let total = session.cards.count
-                let progress = total > 0 ? Double(current) / Double(total) : 0.0
-                let percentage = Int(progress * 100)
                 
-                HStack {
-                    Text("Question \(current) of \(total)")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundColor(.secondary)
-                    
-                    Spacer()
-                    
-                    Text("\(percentage)%")
-                        .font(.subheadline.bold())
-                        .foregroundColor(.blue)
-                }
-                .padding(.horizontal, 4)
+                // ── 4. API EXECUTION ──
+                let apiKey =
+                (ProcessInfo.processInfo.environment["MINIMAX_API_KEY"]
+                 ?? (Bundle.main.object(
+                    forInfoDictionaryKey: "MiniMaxAPIKey"
+                 ) as? String) ?? "")
                 
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(height: 8)
-                        
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(
-                                LinearGradient(
-                                    colors: [.blue, .purple],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(width: geometry.size.width * progress, height: 8)
-                            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: progress)
-                    }
-                }
-                .frame(height: 8)
-                .padding(.horizontal, 4)
-            }
-        }
-        
-        // MARK: - Validation
-        func validateMCInputs() -> String? {
-            guard docURL != nil else { return "Open a document first." }
-            
-            let primarySnapshot = (docText ?? "").trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            let hasPrimaryText = !primarySnapshot.isEmpty
-            let isPPTOrPPTX =
-            docURL?.pathExtension.lowercased() == "ppt"
-            || docURL?.pathExtension.lowercased() == "pptx"
-            
-            if isPPTOrPPTX {
-                return
-                "PPT and PPTX files are not supported for mc generation."
-            }
-            
-            let hasAdditional = selectedFiles.contains { pair in
-                !pair.content.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .isEmpty
-            }
-            
-            guard hasPrimaryText || hasAdditional else {
-                return "This file has no extractable text for mcs."
-            }
-            
-            return nil
-        }
-        
-        // MARK: - Parsing
-        func parseMCMCs(from response: String) -> [MCcard] {
-            var cards: [MCcard] = []
-            
-            // First, extract just the MC question part (before any reasoning/analysis)
-            var cleanResponse = response
-            if let reasoningIndex = response.range(of: #"(?:Let me|I'LL|I'll|The user wants|I'll verify|This seems)"#, options: .regularExpression) {
-                cleanResponse = String(response[..<reasoningIndex.lowerBound])
-            }
-            
-            // Remove extra blank lines and normalize
-            let normalized = cleanResponse
-                .replacingOccurrences(of: "\n\n\n", with: "\n", options: .regularExpression)
-                .replacingOccurrences(of: "\n\n", with: "\n", options: .regularExpression)
-            
-            // Split by "Q:" to find all questions
-            let qParts = normalized.components(separatedBy: "Q:")
-            
-            for part in qParts {
-                guard !part.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                Log.debug("API Key present: \(!apiKey.isEmpty)", category: .network)
                 
-                var qText = part
-                var options: [String] = []
-                var correctLetter = ""
-                
-                // Split into lines
-                let allLines = qText.components(separatedBy: "\n")
-                
-                // First line is the question (might have "Q:" prefix already removed)
-                var question = ""
-                for line in allLines {
-                    let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.isEmpty { continue }
-                    
-                    if trimmed.hasPrefix("A)") || trimmed.hasPrefix("A.") {
-                        // Options start
-                        let opt = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                        if !opt.isEmpty { options.append(opt) }
-                    } else if trimmed.hasPrefix("B)") || trimmed.hasPrefix("B.") {
-                        let opt = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                        if !opt.isEmpty { options.append(opt) }
-                    } else if trimmed.hasPrefix("C)") || trimmed.hasPrefix("C.") {
-                        let opt = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                        if !opt.isEmpty { options.append(opt) }
-                    } else if trimmed.hasPrefix("D)") || trimmed.hasPrefix("D.") {
-                        let opt = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                        if !opt.isEmpty { options.append(opt) }
-                    } else if trimmed.uppercased().hasPrefix("CORRECT:") || trimmed.uppercased().hasPrefix("ANSWER:") {
-                        let letter = trimmed.components(separatedBy: CharacterSet.alphanumerics.inverted).first(where: { ["A","B","C","D"].contains($0.uppercased()) })
-                        if let l = letter {
-                            correctLetter = l.uppercased()
-                        }
-                    } else if question.isEmpty && !trimmed.isEmpty && !trimmed.hasPrefix("Q") {
-                        // This might be the question text (but no Q: prefix)
-                        question = trimmed
-                    } else if question.isEmpty && trimmed.hasPrefix("Q") {
-                        // Skip lines starting with Q that aren't our question
-                    }
+                guard !apiKey.isEmpty else {
+                    throw NSError(domain: "APIError", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: "MiniMax API key is empty. Please set it in Settings."
+                    ])
                 }
                 
-                // If we didn't find a question with the above, try harder
-                if question.isEmpty {
-                    // Take everything before first option as question
-                    var qLines: [String] = []
-                    for line in allLines {
-                        let trimmed = line.trimmingCharacters(in: .whitespaces)
-                        if trimmed.hasPrefix("A)") || trimmed.hasPrefix("A.") || 
-                           trimmed.hasPrefix("B)") || trimmed.hasPrefix("B.") ||
-                           trimmed.hasPrefix("C)") || trimmed.hasPrefix("C.") ||
-                           trimmed.hasPrefix("D)") || trimmed.hasPrefix("D.") {
-                            break
-                        }
-                        if !trimmed.isEmpty && !trimmed.uppercased().hasPrefix("CORRECT") {
-                            qLines.append(trimmed)
-                        }
-                    }
-                    question = qLines.joined(separator: " ")
-                }
-                
-                guard !question.isEmpty, options.count >= 2 else { continue }
-                
-                // Ensure we have 4 options, pad if needed
-                while options.count < 4 {
-                    options.append("")
-                }
-                
-                // Find correct index
-                var correctIdx = 0
-                if let letter = correctLetter.first, let idx = ["A","B","C","D"].firstIndex(of: String(letter).uppercased()) {
-                    correctIdx = idx
-                }
-                
-                cards.append(MCcard(
-                    question: question,
-                    options: Array(options.prefix(4)),
-                    correctIndex: correctIdx
-                ))
-            }
-            
-            return cards
-        }
-        
-        // MARK: - During Session
-        @ViewBuilder
-        func mcCardView(card: MCcard) -> some View {
-            VStack(alignment: .leading, spacing: 16) {
-                progressBarView()
-                
-                // MARK: - Question Card with improved styling
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top, spacing: 12) {
-                        // Question Number Badge
-                        Text("Q\(session.index + 1)")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(Color.blue.opacity(0.15))
-                            )
-                            .foregroundColor(.blue)
-                        
-                        // Adaptive Question Text
-                        Text(card.question)
-                            .font(.title3.weight(.semibold))
-                            .lineLimit(nil)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .minimumScaleFactor(0.6)
-                            .lineSpacing(4)
-                        
-                        if ttsEnabled {
-                            Button(action: toggleTTS) {
-                                ZStack {
-                                    Circle()
-                                        .fill(ttsIsPlaying ? Color.orange.opacity(0.15) : Color.blue.opacity(0.1))
-                                        .frame(width: 40, height: 40)
-                                    Image(
-                                        systemName: ttsIsPlaying
-                                        ? "pause.circle.fill" : "play.circle.fill"
-                                    )
-                                    .font(.title2)
-                                    .foregroundStyle(ttsIsPlaying ? .orange : .blue)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color(UIColor.secondarySystemBackground))
-                        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+                Log.debug("Sending request to MiniMax", category: .network)
+                let (replyContent, _) = try await MiniMaxService.chat(
+                    apiKey: apiKey,
+                    messages: [
+                        .init(role: .system, content: systemContent),
+                        .init(role: .user, content: userPrompt),
+                    ],
+                    temperature: 0.1,
+                    maxTokens: Constants.API.maxTokensStandard
                 )
                 
-                // MARK: - Options with improved styling
+                // ── 5. UI & PERSISTENCE ──
+                let cards = parseMCMCs(from: replyContent)
+                Log.debug("Parsed \(cards.count) cards", category: .data)
+                
+                if let url = docURL { try mcStore.saveSync(cards, for: url) }
+                
+                // Force UI update with delay
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                
+                await MainActor.run {
+                    session.cards = cards
+                    session.index = 0
+                    session.done = false
+                    Log.debug("Session updated: cards=\(cards.count)", category: .data)
+                }
+                
+                // Another small delay to ensure UI refreshes
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                
+                await MainActor.run {
+                    if !trimmedCustom.isEmpty {
+                        UserDefaults.standard.set(
+                            trimmedCustom,
+                            forKey: "LastCustomMCPrompt"
+                        )
+                    }
+                }
+            }
+        } catch {
+            Log.error("MC Generation Error", category: .network, error: error)
+            await MainActor.run {
+                errorMessage = Localization.locWithUserPreference(
+                    "Failed to generate MC cards: \(error.localizedDescription). Coin has been refunded.",
+                    "生成題目失敗：\(error.localizedDescription)。已退還硬幣。"
+                )
+            }
+        }
+        
+        await MainActor.run {
+            isGenerating = false
+            showIndefiniteSpinner = false
+        }
+    }
+    
+    // MARK: - Progress Bar with Animation
+    func progressBarView() -> some View {
+        VStack(spacing: 8) {
+            let current = session.index + 1
+            let total = session.cards.count
+            let progress = total > 0 ? Double(current) / Double(total) : 0.0
+            let percentage = Int(progress * 100)
+            
+            HStack {
+                Text("Question \(current) of \(total)")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Text("\(percentage)%")
+                    .font(.subheadline.bold())
+                    .foregroundColor(.blue)
+            }
+            .padding(.horizontal, 4)
+            
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 8)
+                    
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geometry.size.width * progress, height: 8)
+                        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: progress)
+                }
+            }
+            .frame(height: 8)
+            .padding(.horizontal, 4)
+        }
+    }
+    
+    // MARK: - Validation
+    func validateMCInputs() -> String? {
+        guard docURL != nil else { return "Open a document first." }
+        
+        let primarySnapshot = (docText ?? "").trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let hasPrimaryText = !primarySnapshot.isEmpty
+        let isPPTOrPPTX =
+        docURL?.pathExtension.lowercased() == "ppt"
+        || docURL?.pathExtension.lowercased() == "pptx"
+        
+        if isPPTOrPPTX {
+            return
+            "PPT and PPTX files are not supported for mc generation."
+        }
+        
+        let hasAdditional = selectedFiles.contains { pair in
+            !pair.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        }
+        
+        guard hasPrimaryText || hasAdditional else {
+            return "This file has no extractable text for mcs."
+        }
+        
+        return nil
+    }
+    
+    // MARK: - Parsing
+    func parseMCMCs(from response: String) -> [MCcard] {
+        var cards: [MCcard] = []
+        
+        let reasoningPatterns = ["Let me", "I'LL", "I'll", "The user wants", "I'll verify", "This seems"]
+        var cleanResponse = response
+        for pattern in reasoningPatterns {
+            if let range = cleanResponse.range(of: pattern) {
+                cleanResponse = String(cleanResponse[..<range.lowerBound])
+                break
+            }
+        }
+        
+        cleanResponse = cleanResponse.replacingOccurrences(of: "\n\n\n", with: "\n")
+            .replacingOccurrences(of: "\n\n", with: "\n")
+        
+        let lines = cleanResponse.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var currentType: MCQuestionType = .singleSelect
+        var question = ""
+        var options: [String] = []
+        var correctIndices: [Int] = []
+        
+        let optionLetters = ["A", "B", "C", "D"]
+        let optionIndices: [String: Int] = ["A": 0, "B": 1, "C": 2, "D": 3]
+        
+        func processCard() {
+            guard !question.isEmpty, !options.isEmpty || currentType == .trueFalse else { return }
+            
+            var finalOptions = options
+            var finalCorrectIdx = 0
+            var finalCorrectIndices: [Int]?
+            
+            if currentType == .trueFalse {
+                finalOptions = ["True", "False"]
+                finalCorrectIdx = correctIndices.first ?? 0
+            } else {
+                while finalOptions.count < 4 {
+                    finalOptions.append("")
+                }
+                finalCorrectIdx = correctIndices.first ?? 0
+                if correctIndices.count > 1 {
+                    finalCorrectIndices = correctIndices.sorted()
+                }
+            }
+            
+            cards.append(MCcard(
+                question: question,
+                options: Array(finalOptions.prefix(4)),
+                correctIndex: finalCorrectIdx,
+                correctIndices: finalCorrectIndices,
+                questionType: currentType
+            ))
+        }
+        
+        var idx = 0
+        while idx < lines.count {
+            let rawLine = lines[idx]
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            idx += 1
+            
+            if line.isEmpty {
+                if !question.isEmpty && !options.isEmpty {
+                    processCard()
+                }
+                continue
+            }
+            
+            let upperLine = line.uppercased()
+            
+            if upperLine.hasPrefix("[SINGLE]") || upperLine.hasPrefix("[MULTI]") || upperLine.hasPrefix("[TF]") {
+                if !question.isEmpty {
+                    processCard()
+                }
+                if upperLine.hasPrefix("[MULTI]") {
+                    currentType = .multiSelect
+                } else if upperLine.hasPrefix("[TF]") {
+                    currentType = .trueFalse
+                } else {
+                    currentType = .singleSelect
+                }
+                continue
+            }
+            
+            if upperLine.hasPrefix("Q:") || upperLine.contains("Q：") {
+                if !question.isEmpty {
+                    processCard()
+                }
+                let questionStart: String.Index
+                if upperLine.hasPrefix("Q:") {
+                    questionStart = line.index(line.startIndex, offsetBy: 2)
+                } else if let range = line.range(of: "Q：") {
+                    questionStart = range.upperBound
+                } else {
+                    questionStart = line.index(line.startIndex, offsetBy: 2)
+                }
+                question = String(line[questionStart...]).trimmingCharacters(in: .whitespaces)
+                continue
+            }
+            
+            if upperLine.hasPrefix("CORRECT:") || upperLine.hasPrefix("ANSWER:") || upperLine.contains("CORRECT：") {
+                let letters = line.filter { optionLetters.contains(String($0).uppercased()) }.map { String($0).uppercased() }
+                correctIndices = letters.compactMap { optionIndices[$0] }
+                continue
+            }
+            
+            for (letter, optIdx) in optionIndices {
+                if upperLine.hasPrefix("\(letter).") || upperLine.hasPrefix("\(letter))") {
+                    let dropCount = 2
+                    let opt = String(line.dropFirst(dropCount)).trimmingCharacters(in: .whitespaces)
+                    if !opt.isEmpty {
+                        options.append(opt)
+                    }
+                    break
+                }
+            }
+        }
+        
+        if !question.isEmpty {
+            processCard()
+        }
+        
+        return cards
+    }
+    
+    // MARK: - During Session
+    @ViewBuilder
+    func mcCardView(card: MCcard) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            progressBarView()
+            
+            // MARK: - Question Card with improved styling
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    // Question Number Badge with Type Indicator
+                    VStack(alignment: .center, spacing: 2) {
+                        Text("Q\(session.index + 1)")
+                            .font(.caption.bold())
+                        Text(card.questionType == .multiSelect ? "MULTI" : (card.questionType == .trueFalse ? "T/F" : "SINGLE"))
+                            .font(.system(size: 8).bold())
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(card.questionType == .multiSelect ? Color.purple.opacity(0.15) : (card.questionType == .trueFalse ? Color.orange.opacity(0.15) : Color.blue.opacity(0.15)))
+                    )
+                    .foregroundColor(card.questionType == .multiSelect ? .purple : (card.questionType == .trueFalse ? .orange : .blue))
+                    
+                    // Adaptive Question Text
+                    Text(card.question)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(nil)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .minimumScaleFactor(0.6)
+                        .lineSpacing(4)
+                    
+                    if ttsEnabled {
+                        Button(action: toggleTTS) {
+                            ZStack {
+                                Circle()
+                                    .fill(ttsIsPlaying ? Color.orange.opacity(0.15) : Color.blue.opacity(0.1))
+                                    .frame(width: 40, height: 40)
+                                Image(
+                                    systemName: ttsIsPlaying
+                                    ? "pause.circle.fill" : "play.circle.fill"
+                                )
+                                .font(.title2)
+                                .foregroundStyle(ttsIsPlaying ? .orange : .blue)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(UIColor.secondarySystemBackground))
+                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+            )
+            
+            // MARK: - True/False Questions
+            if card.questionType == .trueFalse {
+                VStack(spacing: 12) {
+                    Text("Select True or False")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 16) {
+                        ForEach(0..<min(2, card.options.count), id: \.self) { i in
+                            let option = card.options[i]
+                            let isSelected = selectedIndex == i
+                            
+                            Button {
+                                guard !showResult else { return }
+                                let generator = UIImpactFeedbackGenerator(style: .light)
+                                generator.impactOccurred()
+                                selectedIndex = i
+                                selectedIndices = [i]
+                            } label: {
+                                VStack(spacing: 8) {
+                                    Image(systemName: option == "True" ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                        .font(.largeTitle)
+                                    Text(option)
+                                        .font(.headline)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(tfBackgroundColor(for: i, isSelected: isSelected, card: card))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(tfBorderColor(for: i, isSelected: isSelected, card: card), lineWidth: isSelected && !showResult ? 2 : (showResult && (i == card.correctIndex || (showResult && isSelected)) ? 2 : 0))
+                                )
+                            }
+                            .disabled(showResult)
+                        }
+                    }
+                }
+            } else if card.questionType == .multiSelect {
+                // MARK: - Multi-Select Options
+                VStack(spacing: 8) {
+                    Text("Select ALL that apply")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    ForEach(0..<min(4, card.options.count), id: \.self) { i in
+                        let option = card.options[i]
+                        let letter = ["A", "B", "C", "D"][i]
+                        let isSelected = selectedIndices.contains(i)
+                        
+                        Button {
+                            guard !showResult else { return }
+                            let generator = UIImpactFeedbackGenerator(style: .light)
+                            generator.impactOccurred()
+                            if isSelected {
+                                selectedIndices.remove(i)
+                            } else {
+                                selectedIndices.insert(i)
+                            }
+                            if let idx = selectedIndices.first {
+                                selectedIndex = idx
+                            }
+                        } label: {
+                            HStack(alignment: .top, spacing: 14) {
+                                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                                    .font(.title2)
+                                    .foregroundColor(isSelected ? .blue : .gray)
+                                
+                                Text("\(letter). \(option)")
+                                    .font(.callout.weight(.medium))
+                                    .minimumScaleFactor(0.55)
+                                    .lineLimit(nil)
+                                    .multilineTextAlignment(.leading)
+                                    .allowsTightening(true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                Spacer()
+                                
+                                if showResult {
+                                    let isCorrectOption = card.correctIndices?.contains(i) ?? false
+                                    let wasSelected = selectedIndices.contains(i)
+                                    Image(systemName: isCorrectOption ? "checkmark.circle.fill" : (wasSelected ? "xmark.circle.fill" : "circle"))
+                                        .font(.title2)
+                                        .foregroundStyle(isCorrectOption ? .green : (wasSelected ? .red : .gray))
+                                }
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(multiBackgroundColor(for: i, isSelected: isSelected, card: card))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(multiBorderColor(for: i, isSelected: isSelected, card: card), lineWidth: isSelected && !showResult ? 2 : 0)
+                            )
+                        }
+                        .disabled(showResult)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedIndices)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.4), value: showResult)
+            } else {
+                // MARK: - Single-Select Options
                 ForEach(0..<min(4, card.options.count), id: \.self) { i in
                     let option = card.options[i]
                     let letter = ["A", "B", "C", "D"][i]
@@ -1992,9 +2231,9 @@ struct MCStudyView: View {
                         let generator = UIImpactFeedbackGenerator(style: .light)
                         generator.impactOccurred()
                         selectedIndex = i
+                        selectedIndices = [i]
                     } label: {
                         HStack(alignment: .top, spacing: 14) {
-                            // Letter Circle with improved styling
                             ZStack {
                                 Circle()
                                     .fill(
@@ -2012,8 +2251,7 @@ struct MCStudyView: View {
                                 }
                             }
                             
-                            // Option Text
-                            Text(option)
+                            Text("\(letter). \(option)")
                                 .font(.callout.weight(.medium))
                                 .minimumScaleFactor(0.55)
                                 .lineLimit(nil)
@@ -2023,7 +2261,6 @@ struct MCStudyView: View {
                             
                             Spacer()
                             
-                            // Check/X mark after answer
                             if showResult {
                                 Image(
                                     systemName: i == card.correctIndex
@@ -2031,7 +2268,7 @@ struct MCStudyView: View {
                                 )
                                 .font(.title2)
                                 .foregroundStyle(
-                                    i == card.correctIndex ? .green : .red
+                                    i == card.correctIndex ? .green : (selectedIndex == i ? .red : .gray)
                                 )
                                 .fontWeight(.bold)
                                 .transition(.scale.combined(with: .opacity))
@@ -2054,380 +2291,546 @@ struct MCStudyView: View {
                     .disabled(showResult)
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedIndex)
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showResult)
-                    
                 }
                 .animation(.easeInOut(duration: 0.4), value: showResult)
                 .animation(.easeInOut(duration: 0.4), value: isCorrect)
-                
-                // MARK: - Submit Button
-                if selectedIndex != nil && !showResult {
-                    Button {
-                        let generator = UIImpactFeedbackGenerator(style: .medium)
-                        generator.impactOccurred()
-                        Task {
-                            guard let index = selectedIndex else { return }
-                            await submitAnswer(
-                                userChoiceIndex: index,
-                                card: card
-                            )
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                            Text("Submit Answer")
-                        }
-                        .font(.headline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            LinearGradient(
-                                colors: [.blue, .purple],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
+            }
+            
+            // MARK: - Submit Button
+            if (card.questionType == .trueFalse && selectedIndex != nil && !showResult) ||
+                (card.questionType == .multiSelect && !selectedIndices.isEmpty && !showResult) ||
+                (card.questionType == .singleSelect && selectedIndex != nil && !showResult) {
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    Task {
+                        await submitAnswerMulti(
+                            userChoiceIndex: selectedIndex ?? 0,
+                            userChoiceIndices: selectedIndices,
+                            card: card
                         )
-                        .foregroundColor(.white)
-                        .cornerRadius(14)
-                        .shadow(color: .blue.opacity(0.3), radius: 6, x: 0, y: 3)
                     }
-                    .disabled(isGrading)
-                }
-                
-                // MARK: - Result Section
-                if showResult {
-                    VStack(spacing: 12) {
-//                        // Score Feedback
-//                        HStack {
-//                            Image(systemName: isCorrect ? "checkmark.seal.fill" : "xmark.seal.fill")
-//                                .font(.title2)
-//                                .foregroundColor(isCorrect ? .green : .red)
-//                            
-                        Divider()
-                            .padding(.vertical,1)
-                        
-                        HStack{
-                            
-                            HStack(alignment: .top) {
-                                if let explanation = card.explanation, !explanation.isEmpty
-                                {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Label("Explanation", systemImage: "lightbulb.fill")
-                                            .font(.subheadline)
-                                            .foregroundColor(.yellow)
-                                        
-                                        NativeMarkdownView2(
-                                            markdown: explanation,
-                                            ttsEnabled: .constant(
-                                                MultiSettingsViewModel.shared.ttsEnabled
-                                            )
-                                        )
-                                    }
-                                } else if isExplainingCard(card.id) {
-                                    HStack {
-                                        ProgressView()
-                                            .scaleEffect(1.1)
-                                        Text("Generating explanation...")
-                                            .font(.headline)
-                                            .foregroundColor(.purple)
-                                            .frame(maxWidth: .infinity)
-                                    }
-                                    .padding(.horizontal)
-                                    .padding(.vertical, 12)
-                                    .background(Color.purple.opacity(0.1))
-                                    .cornerRadius(12)
-                                } else {
-                                    Button {
-                                        let generator = UIImpactFeedbackGenerator(style: .light)
-                                        generator.impactOccurred()
-                                        Task { await explainSingleCard(card) }
-                                    } label: {
-                                        Label(
-                                            "Explain Answer",
-                                            systemImage: "brain.head.profile"
-                                        )
-                                        .font(.headline)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                        .background(Color.purple.opacity(0.15))
-                                        .foregroundColor(.purple)
-                                        .cornerRadius(12)
-                                    }
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            Button {
-                                let generator = UIImpactFeedbackGenerator(style: .light)
-                                generator.impactOccurred()
-                                advanceToNextCard()
-                            } label: {
-                                VStack {
-                                    Text(session.index < session.cards.count - 1 ? "Next" : "See Results")
-                                    Image(systemName: session.index < session.cards.count - 1 ? "arrow.right.circle.fill" : "chart.bar.doc.horizontal.fill")
-                                }
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.vertical,6)
-                                .padding(.horizontal,4)
-                                .background(
-                                    LinearGradient(
-                                        colors: [.blue, .cyan],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .foregroundColor(.white)
-                                .cornerRadius(14)
-                                .shadow(color: .blue.opacity(0.3), radius: 6, x: 0, y: 3)
-                            }
-                            .disabled(isGrading)
-                        }
+                } label: {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Submit Answer")
                     }
-                    .gesture(
-                        DragGesture(minimumDistance: 50)
-                            .onEnded { value in
-                                let horizontalAmount = value.translation.width
-                                if horizontalAmount < -50 && !showResult {
-                                    advanceToNextCard()
-                                } else if horizontalAmount > 50 && session.index > 0 && !showResult {
-                                    goToPreviousCard()
-                                }
-                            }
+                    .font(.headline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
                     )
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+                    .shadow(color: .blue.opacity(0.3), radius: 6, x: 0, y: 3)
                 }
-            }.padding()
-        }
-        
-        // MARK: - Helper Color Functions (keep your original ones)
-        func letterBackgroundColor(for index: Int, card: MCcard) -> Color {
-            guard showResult else { return .gray }
-            return index == card.correctIndex
-            ? .green : (index == selectedIndex ? .red : .gray)
-        }
-        
-        func backgroundColor(for index: Int, card: MCcard) -> Color {
-            if showResult {
-                if index == card.correctIndex {
-                    return Color.green.opacity(0.15)
-                }
-                if index == selectedIndex && !isCorrect {
-                    return Color.red.opacity(0.15)
-                }
-                return Color(UIColor.systemBackground)
+                .disabled(isGrading)
             }
             
-            if selectedIndex == nil {
-                return .gray.opacity(0.08)
-            } else {
-                // User has selected an option
-                return selectedIndex == index
-                ? Color.blue.opacity(0.15) : Color(UIColor.systemBackground)
-            }
-        }
-        
-        func borderColor(for index: Int, card: MCcard) -> Color {
+            // MARK: - Result Section
             if showResult {
-                if index == card.correctIndex {
-                    return .green
-                }
-                if index == selectedIndex && !isCorrect {
-                    return .red
-                }
-                return .clear
-            }
-            
-            if selectedIndex == nil {
-                return .gray.opacity(0.5)
-            } else {
-                return selectedIndex == index ? .blue : .clear
-            }
-        }
-        
-        @ViewBuilder
-        func resultsViewAll() -> some View {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header with score
-                    VStack(spacing: 16) {
-                        let accuracy = session.totalAttempts > 0 ?
-                        Double(session.totalMarks) / Double(session.totalAttempts * 10) * 100 : 0
-                        
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: accuracy >= 70 ? [Color.green.opacity(0.2), Color.green.opacity(0.1)] : [Color.orange.opacity(0.2), Color.orange.opacity(0.1)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 120, height: 120)
-                            
-                            VStack(spacing: 4) {
-                                Text("\(Int(accuracy))%")
-                                    .font(.system(size: 36, weight: .bold))
-                                    .foregroundColor(accuracy >= 70 ? .green : .orange)
-                                Text("Accuracy")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        Text("Study Complete!")
-                            .font(.title2.bold())
-                        
-                        HStack(spacing: 20) {
-                            VStack {
-                                Text("\(session.totalMarks)")
-                                    .font(.headline.bold())
-                                    .foregroundColor(.green)
-                                Text("Score")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.3))
-                                .frame(width: 1, height: 40)
-                            
-                            VStack {
-                                Text("\(session.totalAttempts)")
-                                    .font(.headline.bold())
-                                Text("Questions")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.3))
-                                .frame(width: 1, height: 40)
-                            
-                            VStack {
-                                Text("\(session.cards.filter { $0.lastUserIndex == $0.correctIndex }.count)")
-                                    .font(.headline.bold())
-                                    .foregroundColor(.blue)
-                                Text("Correct")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding()
-                        .background(Color(UIColor.secondarySystemBackground))
-                        .cornerRadius(16)
-                    }
-                    .padding(.top, 20)
+                VStack(spacing: 12) {
+                    Divider()
+                        .padding(.vertical,1)
                     
-                    // Cards breakdown
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Question Review")
-                            .font(.headline)
-                            .padding(.horizontal)
+                    // MARK: - SM-2 Rating Buttons
+                    HStack(spacing: 12) {
+                        Text("How hard was this?")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 4)
+                    
+                    HStack(spacing: 10) {
+                        sm2RatingButton(rating: .again, card: card) {
+                            session.rate(.again)
+                            advanceToNextCard()
+                        }
+                        sm2RatingButton(rating: .hard, card: card) {
+                            session.rate(.hard)
+                            advanceToNextCard()
+                        }
+                        sm2RatingButton(rating: .good, card: card) {
+                            session.rate(.good)
+                            advanceToNextCard()
+                        }
+                        sm2RatingButton(rating: .easy, card: card) {
+                            session.rate(.easy)
+                            advanceToNextCard()
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    
+                    Divider()
+                        .padding(.vertical,1)
+                    
+                    HStack{
                         
-                        ForEach(session.cards) { card in
-                            let isCorrect = card.lastUserIndex == card.correctIndex
-                            
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack(alignment: .top) {
-                                    Image(systemName: isCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                        .font(.title3)
-                                        .foregroundColor(isCorrect ? .green : .red)
+                        HStack(alignment: .top) {
+                            if let explanation = card.explanation, !explanation.isEmpty
+                            {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Label("Explanation", systemImage: "lightbulb.fill")
+                                        .font(.subheadline)
+                                        .foregroundColor(.yellow)
                                     
-                                    Text(card.question)
-                                        .font(.headline)
-                                        .lineLimit(2)
-                                    
-                                    Spacer()
+                                    NativeMarkdownView2(
+                                        markdown: explanation,
+                                        ttsEnabled: .constant(
+                                            MultiSettingsViewModel.shared.ttsEnabled
+                                        )
+                                    )
                                 }
-                                
+                            } else if isExplainingCard(card.id) {
                                 HStack {
+                                    ProgressView()
+                                        .scaleEffect(1.1)
+                                    Text("Generating explanation...")
+                                        .font(.headline)
+                                        .foregroundColor(.purple)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .padding(.horizontal)
+                                .padding(.vertical, 12)
+                                .background(Color.purple.opacity(0.1))
+                                .cornerRadius(12)
+                            } else {
+                                Button {
+                                    let generator = UIImpactFeedbackGenerator(style: .light)
+                                    generator.impactOccurred()
+                                    Task { await explainSingleCard(card) }
+                                } label: {
+                                    Label(
+                                        "Explain Answer",
+                                        systemImage: "brain.head.profile"
+                                    )
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.purple.opacity(0.15))
+                                    .foregroundColor(.purple)
+                                    .cornerRadius(12)
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        Button {
+                            let generator = UIImpactFeedbackGenerator(style: .light)
+                            generator.impactOccurred()
+                            advanceToNextCard()
+                        } label: {
+                            VStack {
+                                Text(session.index < session.cards.count - 1 ? "Next" : "See Results")
+                                Image(systemName: session.index < session.cards.count - 1 ? "arrow.right.circle.fill" : "chart.bar.doc.horizontal.fill")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.vertical,6)
+                            .padding(.horizontal,4)
+                            .background(
+                                LinearGradient(
+                                    colors: [.blue, .cyan],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .foregroundColor(.white)
+                            .cornerRadius(14)
+                            .shadow(color: .blue.opacity(0.3), radius: 6, x: 0, y: 3)
+                        }
+                        .disabled(isGrading)
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 50)
+                        .onEnded { value in
+                            let horizontalAmount = value.translation.width
+                            if horizontalAmount < -50 && !showResult {
+                                advanceToNextCard()
+                            } else if horizontalAmount > 50 && session.index > 0 && !showResult {
+                                goToPreviousCard()
+                            }
+                        }
+                )
+            }
+        }.padding()
+    }
+    
+    // MARK: - Helper Color Functions (keep your original ones)
+    func letterBackgroundColor(for index: Int, card: MCcard) -> Color {
+        guard showResult else { return .gray }
+        return index == card.correctIndex
+        ? .green : (index == selectedIndex ? .red : .gray)
+    }
+    
+    func backgroundColor(for index: Int, card: MCcard) -> Color {
+        if showResult {
+            if index == card.correctIndex {
+                return Color.green.opacity(0.15)
+            }
+            if index == selectedIndex && !isCorrect {
+                return Color.red.opacity(0.15)
+            }
+            return Color(UIColor.systemBackground)
+        }
+        
+        if selectedIndex == nil {
+            return .gray.opacity(0.08)
+        } else {
+            // User has selected an option
+            return selectedIndex == index
+            ? Color.blue.opacity(0.15) : Color(UIColor.systemBackground)
+        }
+    }
+    
+    func borderColor(for index: Int, card: MCcard) -> Color {
+        if showResult {
+            if index == card.correctIndex {
+                return .green
+            }
+            if index == selectedIndex && !isCorrect {
+                return .red
+            }
+            return .clear
+        }
+        
+        if selectedIndex == nil {
+            return .gray.opacity(0.5)
+        } else {
+            return selectedIndex == index ? .blue : .clear
+        }
+    }
+    
+    func tfBackgroundColor(for index: Int, isSelected: Bool, card: MCcard) -> Color {
+        if showResult {
+            if index == card.correctIndex {
+                return Color.green.opacity(0.15)
+            }
+            if isSelected && index != card.correctIndex {
+                return Color.red.opacity(0.15)
+            }
+            return Color(UIColor.systemBackground)
+        }
+        return isSelected ? Color.blue.opacity(0.15) : Color(UIColor.systemBackground)
+    }
+    
+    func tfBorderColor(for index: Int, isSelected: Bool, card: MCcard) -> Color {
+        if showResult {
+            if index == card.correctIndex {
+                return .green
+            }
+            if isSelected && index != card.correctIndex {
+                return .red
+            }
+            return .clear
+        }
+        return isSelected ? .blue : .gray.opacity(0.5)
+    }
+    
+    func multiBackgroundColor(for index: Int, isSelected: Bool, card: MCcard) -> Color {
+        if showResult {
+            let isCorrectOption = card.correctIndices?.contains(index) ?? false
+            if isCorrectOption {
+                return Color.green.opacity(0.15)
+            }
+            if isSelected && !isCorrectOption {
+                return Color.red.opacity(0.15)
+            }
+            return Color(UIColor.systemBackground)
+        }
+        return isSelected ? Color.blue.opacity(0.15) : Color(UIColor.systemBackground)
+    }
+    
+    func multiBorderColor(for index: Int, isSelected: Bool, card: MCcard) -> Color {
+        if showResult {
+            let isCorrectOption = card.correctIndices?.contains(index) ?? false
+            if isCorrectOption {
+                return .green
+            }
+            if isSelected && !isCorrectOption {
+                return .red
+            }
+            return .clear
+        }
+        return isSelected ? .blue : .clear
+    }
+    
+    func sm2RatingButton(rating: MCSession.Rating, card: MCcard, action: @escaping () -> Void) -> some View {
+        Button {
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred()
+            action()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: ratingIcon(for: rating))
+                    .font(.title3)
+                Text(ratingLabel(for: rating))
+                    .font(.caption2.bold())
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(ratingColor(for: rating).opacity(0.15))
+            .foregroundColor(ratingColor(for: rating))
+            .cornerRadius(10)
+        }
+    }
+    
+    func ratingIcon(for rating: MCSession.Rating) -> String {
+        switch rating {
+        case .again: return "arrow.counterclockwise.circle.fill"
+        case .hard: return "minus.circle.fill"
+        case .good: return "checkmark.circle.fill"
+        case .easy: return "star.circle.fill"
+        }
+    }
+    
+    func ratingLabel(for rating: MCSession.Rating) -> String {
+        switch rating {
+        case .again: return "Again"
+        case .hard: return "Hard"
+        case .good: return "Good"
+        case .easy: return "Easy"
+        }
+    }
+    
+    func ratingColor(for rating: MCSession.Rating) -> Color {
+        switch rating {
+        case .again: return .red
+        case .hard: return .orange
+        case .good: return .green
+        case .easy: return .blue
+        }
+    }
+    
+    @ViewBuilder
+    func resultsViewAll() -> some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // Header with score
+                VStack(spacing: 16) {
+                    let accuracy = session.totalAttempts > 0 ?
+                    Double(session.totalMarks) / Double(session.totalAttempts * 10) * 100 : 0
+                    
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: accuracy >= 70 ? [Color.green.opacity(0.2), Color.green.opacity(0.1)] : [Color.orange.opacity(0.2), Color.orange.opacity(0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 120, height: 120)
+                        
+                        VStack(spacing: 4) {
+                            Text("\(Int(accuracy))%")
+                                .font(.system(size: 36, weight: .bold))
+                                .foregroundColor(accuracy >= 70 ? .green : .orange)
+                            Text("Accuracy")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    Text("Study Complete!")
+                        .font(.title2.bold())
+                    
+                    HStack(spacing: 20) {
+                        VStack {
+                            Text("\(session.totalMarks)")
+                                .font(.headline.bold())
+                                .foregroundColor(.green)
+                            Text("Score")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.3))
+                            .frame(width: 1, height: 40)
+                        
+                        VStack {
+                            Text("\(session.totalAttempts)")
+                                .font(.headline.bold())
+                            Text("Questions")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.3))
+                            .frame(width: 1, height: 40)
+                        
+                        VStack {
+                            Text("\(session.cards.filter { $0.lastUserIndex == $0.correctIndex }.count)")
+                                .font(.headline.bold())
+                                .foregroundColor(.blue)
+                            Text("Correct")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding()
+                    .background(Color(UIColor.secondarySystemBackground))
+                    .cornerRadius(16)
+                }
+                .padding(.top, 20)
+                
+                // Cards breakdown
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Question Review")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    ForEach(session.cards) { card in
+                        let isMultiCorrect = card.questionType == .multiSelect &&
+                        Set(card.correctIndices ?? [card.correctIndex]) == Set(card.lastUserIndices ?? [])
+                        let isSingleCorrect = card.questionType != .multiSelect &&
+                        card.lastUserIndex == card.correctIndex
+                        let isCardCorrect = isMultiCorrect || isSingleCorrect
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top) {
+                                Image(systemName: isCardCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .font(.title3)
+                                    .foregroundColor(isCardCorrect ? .green : .red)
+                                
+                                Text(card.question)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                
+                                Spacer()
+                                
+                                Text(card.questionType == .multiSelect ? "MULTI" : (card.questionType == .trueFalse ? "T/F" : "SINGLE"))
+                                    .font(.system(size: 9).bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        Capsule()
+                                            .fill(card.questionType == .multiSelect ? Color.purple.opacity(0.15) : (card.questionType == .trueFalse ? Color.orange.opacity(0.15) : Color.blue.opacity(0.15)))
+                                    )
+                                    .foregroundColor(card.questionType == .multiSelect ? .purple : (card.questionType == .trueFalse ? .orange : .blue))
+                            }
+                            
+                            HStack {
+                                if card.questionType == .trueFalse {
+                                    Label("Correct: \(card.correctAnswer)", systemImage: "checkmark")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                } else if card.questionType == .multiSelect {
+                                    let correctLetters = card.correctIndices?.map { ["A","B","C","D"][$0] }.joined(separator: ", ") ?? ""
+                                    Label("Correct: \(correctLetters)", systemImage: "checkmark")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                } else {
                                     Label("Correct: \(["A","B","C","D"][card.correctIndex])", systemImage: "checkmark")
                                         .font(.caption)
                                         .foregroundColor(.green)
-                                    
-                                    Spacer()
-                                    
-                                    if let chosen = card.lastUserIndex {
-                                        let letter = ["A", "B", "C", "D"][chosen]
-                                        Label("Your: \(letter)", systemImage: isCorrect ? "checkmark" : "xmark")
-                                            .font(.caption)
-                                            .foregroundColor(isCorrect ? .green : .red)
-                                    }
                                 }
                                 
-                                if let exp = card.explanation, !exp.isEmpty {
-                                    Divider().padding(.vertical, 4)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Label("Explanation", systemImage: "lightbulb.fill")
-                                            .font(.caption.bold())
-                                            .foregroundColor(.yellow)
-                                        
-                                        NativeMarkdownView2(
-                                            markdown: exp,
-                                            ttsEnabled: .constant(
-                                                MultiSettingsViewModel.shared.ttsEnabled
-                                            )
-                                        )
+                                Spacer()
+                                
+                                if card.questionType == .multiSelect, let indices = card.lastUserIndices, !indices.isEmpty {
+                                    let letters = indices.map { ["A","B","C","D"][$0] }.joined(separator: ", ")
+                                    Label("Your: \(letters)", systemImage: isMultiCorrect ? "checkmark" : "xmark")
                                         .font(.caption)
-                                    }
-                                } else if !isExplainingCard(card.id) && !session.explanationsReady {
-                                    Button {
-                                        Task { await explainSingleCard(card) }
-                                    } label: {
-                                        Label("Explain", systemImage: "brain.head.profile")
+                                        .foregroundColor(isMultiCorrect ? .green : .red)
+                                } else if let chosen = card.lastUserIndex {
+                                    if card.questionType == .trueFalse {
+                                        Label("Your: \(card.options[chosen])", systemImage: isSingleCorrect ? "checkmark" : "xmark")
                                             .font(.caption)
+                                            .foregroundColor(isSingleCorrect ? .green : .red)
+                                    } else {
+                                        let letter = ["A","B","C","D"][chosen]
+                                        Label("Your: \(letter)", systemImage: isSingleCorrect ? "checkmark" : "xmark")
+                                            .font(.caption)
+                                            .foregroundColor(isSingleCorrect ? .green : .red)
                                     }
-                                    .buttonStyle(.bordered)
                                 }
                             }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(UIColor.secondarySystemBackground))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(isCorrect ? Color.green.opacity(0.3) : Color.red.opacity(0.3), lineWidth: 1)
-                            )
+                            
+                            if let exp = card.explanation, !exp.isEmpty {
+                                Divider().padding(.vertical, 4)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Label("Explanation", systemImage: "lightbulb.fill")
+                                        .font(.caption.bold())
+                                        .foregroundColor(.yellow)
+                                    
+                                    NativeMarkdownView2(
+                                        markdown: exp,
+                                        ttsEnabled: .constant(
+                                            MultiSettingsViewModel.shared.ttsEnabled
+                                        )
+                                    )
+                                    .font(.caption)
+                                }
+                            } else if !isExplainingCard(card.id) && !session.explanationsReady {
+                                Button {
+                                    Task { await explainSingleCard(card) }
+                                } label: {
+                                    Label("Explain", systemImage: "brain.head.profile")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(UIColor.secondarySystemBackground))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(isCardCorrect ? Color.green.opacity(0.3) : Color.red.opacity(0.3), lineWidth: 1)
+                        )
                     }
-                    .padding(.vertical, 4)
+                }
+                .padding(.vertical, 4)
+            }
+            
+            HStack(spacing: 12) {
+                Button {
+                    let csv = mcCardsToCSV(session.cards)
+                    let url = FileExporter.tempFile(
+                        named: "mcmcs.csv",
+                        content: csv
+                    )
+                    ShareSheet.present(items: [url])
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                
+                Spacer()
+                
+                if !session.explanationsReady {
+                    Button {
+                        batchExplainAll()
+                    } label: {
+                        Label(
+                            "All Explanations",
+                            systemImage: "brain.head.profile"
+                        )
+                        .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                    .disabled(isBatchExplaining)
                 }
                 
-                HStack(spacing: 12) {
-                    Button {
-                        let csv = mcCardsToCSV(session.cards)
-                        let url = FileExporter.tempFile(
-                            named: "mcmcs.csv",
-                            content: csv
-                        )
-                        ShareSheet.present(items: [url])
-                    } label: {
-                        Label("Export", systemImage: "square.and.arrow.up")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .buttonStyle(.bordered)
-                    
-                    Spacer()
-                    
-                    if !session.explanationsReady {
-                        Button {
-                            batchExplainAll()
-                        } label: {
-                            Label(
-                                "All Explanations",
-                                systemImage: "brain.head.profile"
-                            )
-                            .font(.subheadline.weight(.medium))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.purple)
-                        .disabled(isBatchExplaining)
-                    }
-                    
-                }.padding(.bottom, 6)
-            }.padding(.horizontal)
-            
-        }
+            }.padding(.bottom, 6)
+        }.padding(.horizontal)
+    }
+        
+        
         
         func splitIntoOptimalChunks(text: String) -> [String] {
             let clean = TTSUtils.cleanMarkdownForTTS(text)
@@ -2550,24 +2953,32 @@ struct MCStudyView: View {
         
         func resetState() {
             selectedIndex = nil
+            selectedIndices = []
             showResult = false
             isCorrect = false
             gradingFeedback = ""
             isGrading = false
         }
         func mcCardsToCSV(_ cards: [MCcard]) -> String {
-            var out = "Question,A,B,C,D,Correct\n"
+            var out = "Question,Type,A,B,C,D,Correct\n"
             for c in cards {
                 let q = c.question.replacingOccurrences(of: ",", with: " ")
                 let opts = c.options.map {
                     $0.replacingOccurrences(of: ",", with: " ")
                 }
-                let correctLetter = ["A", "B", "C", "D"][c.correctIndex]
+                let typeStr = c.questionType == .multiSelect ? "multi" : (c.questionType == .trueFalse ? "tf" : "single")
+                let correctLetter: String
+                if c.questionType == .multiSelect {
+                    correctLetter = c.correctIndices?.map { ["A","B","C","D"][$0] }.joined(separator: ";") ?? ""
+                } else {
+                    correctLetter = ["A","B","C","D"][c.correctIndex]
+                }
                 out +=
-                "\(q),\(opts[0]),\(opts[1]),\(opts[2]),\(opts[3]),\(correctLetter)\n"
+                "\(q),\(typeStr),\(opts[0]),\(opts[1]),\(opts[2]),\(opts[3]),\(correctLetter)\n"
             }
             return out
         }
+        
         
         func saveSessionState() {
             guard let url = docURL else { return }
@@ -2626,6 +3037,7 @@ struct MCStudyView: View {
             session.perCardMarks.removeAll()
             
             selectedIndex = nil
+            selectedIndices = []
             showResult = false
             isCorrect = false
             gradingFeedback = ""
@@ -2729,7 +3141,7 @@ struct MCStudyView: View {
             
             let clean = TTSUtils.cleanMarkdownForTTS(text)
             let (isChinese, _) = TTSUtils.detectContentLanguage(clean)
-
+            
             if isChinese {
                 ttsUseBuiltInTTS = true
                 Log.debug("TTS: Using built-in (Chinese content)", category: .tts)
@@ -2738,13 +3150,13 @@ struct MCStudyView: View {
                 Log.debug("TTS: Using Kokoro (English content)", category: .tts)
             }
         }
-
+        
         func speakWithBuiltInTTS(_ text: String) {
             let (isChinese, _) = TTSUtils.detectContentLanguage(text)
             let locale = isChinese ? "zh-HK" : "en-US"
-
+            
             Log.debug("Built-in TTS (\(locale))", category: .tts)
-
+            
             ttsChineseDelegate = ChineseTTSDelegate {
                 DispatchQueue.main.async {
                     guard self.ttsIsPlaying else { return }
@@ -2818,7 +3230,7 @@ struct MCStudyView: View {
                 }
             }
         }
-
+        
         func safeSplitLongSentence(sentence: String, maxLength: Int)
         -> [String]
         {
@@ -2849,4 +3261,5 @@ struct MCStudyView: View {
             }
             return parts
         }
-}
+    }
+

@@ -15,8 +15,7 @@ import WebKit
 
 struct WebMarkdownView: UIViewRepresentable {
     let markdown: String
-    let onListenTapped: () -> Void
-    let onAskAIAboutSelection: (String) -> Void   // ← NEW callback
+    let onAskAIAboutSelection: (String) -> Void
     
     @Binding var isEditorFullScreen: Bool
     @Binding var ttsEnabled: Bool
@@ -40,29 +39,7 @@ struct WebMarkdownView: UIViewRepresentable {
         // Allow text selection (default on iOS, but we make sure)
         webView.configuration.selectionGranularity = .dynamic
         
-        // Listen button (unchanged)
-        let button = UIButton(configuration: .filled(), primaryAction: nil)
-        if var cfg = button.configuration {
-            cfg.baseBackgroundColor = .systemBlue.withAlphaComponent(0.75)
-            cfg.baseForegroundColor = .white
-            cfg.image = UIImage(systemName: "headphones")
-            cfg.imagePadding = 8
-            cfg.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 18, bottom: 11, trailing: 18)
-            cfg.cornerStyle = .capsule
-            button.configuration = cfg
-        }
-        
-        button.layer.shadowOpacity = 0.35
-        button.layer.shadowRadius = 12
-        button.layer.shadowOffset = CGSize(width: 0, height: 6)
-        button.layer.shadowColor = UIColor.black.cgColor
-        
-        button.isHidden = !ttsEnabled
-        button.alpha = ttsEnabled ? 1.0 : 0.0
-        
-        button.addTarget(context.coordinator, action: #selector(Coordinator.listenTapped), for: .touchUpInside)
-        
-        // NEW: Ask AI floating button
+        // Ask AI floating button
         let askButton = UIButton(configuration: .filled(), primaryAction: nil)
         if var askCfg = askButton.configuration {
             askCfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.85)
@@ -87,15 +64,12 @@ struct WebMarkdownView: UIViewRepresentable {
         
         // Store references
         context.coordinator.webView = webView
-        context.coordinator.listenButton = button
         context.coordinator.askButton = askButton
         
         container.addSubview(webView)
-        container.addSubview(button)
         container.addSubview(askButton)
         
         webView.translatesAutoresizingMaskIntoConstraints = false
-        button.translatesAutoresizingMaskIntoConstraints = false
         askButton.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
@@ -104,10 +78,7 @@ struct WebMarkdownView: UIViewRepresentable {
             webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             
-            button.bottomAnchor.constraint(equalTo: container.safeAreaLayoutGuide.bottomAnchor, constant: -10),
-            button.trailingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.trailingAnchor, constant: -15),
-            
-            askButton.bottomAnchor.constraint(equalTo: button.topAnchor, constant: -12),
+            askButton.bottomAnchor.constraint(equalTo: container.safeAreaLayoutGuide.bottomAnchor, constant: -10),
             askButton.trailingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.trailingAnchor, constant: -15),
         ])
         
@@ -124,14 +95,15 @@ struct WebMarkdownView: UIViewRepresentable {
         let htmlBody = SimpleMarkdown.gfmToHTML(from: escaped)
         let css = """
                 <style>
-                body { font: -apple-system-body; padding: 16px; color: #111; }
+                body { font: -apple-system-body; padding: 16px; color: #111; overflow-wrap: break-word; word-wrap: break-word; }
                 h1,h2,h3 { margin-top: 1.0em; }
                 code, pre { font-family: ui-monospace, Menlo, monospace; background: #f5f5f7; }
-                pre { padding: 12px; border-radius: 8px; overflow: auto; }
-                table { border-collapse: collapse; width: 100%; }
+                pre { padding: 12px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-wrap: normal; }
+                table { border-collapse: collapse; width: 100%; max-width: 100%; overflow-x: auto; display: block; }
                 th, td { border: 1px solid #ddd; padding: 8px; }
                 blockquote { border-left: 4px solid #ddd; padding-left: 12px; color: #555; }
-                ::selection { background: #FFEB3B; color: black; } /* nice yellow highlight */
+                img { max-width: 100%; height: auto; display: block; }
+                ::selection { background: #FFEB3B; color: black; }
                 </style>
                 """
         return """
@@ -140,47 +112,7 @@ struct WebMarkdownView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: UIView, context: Context) {
-        let html = WebMarkdownView.exportHTML(markdown: markdown)
-        let styledHTML = """
-        <style>
-            @media (prefers-color-scheme: dark) {
-                body, p, div, span, h1, h2, h3, h4, h5, h6 { color: white !important; }
-                ::selection { background: #FFD60A; }
-            }
-            ::selection { background: #FFEB3B; color: black; }
-            body { -webkit-user-select: text; user-select: text; }
-        </style>
-        \(html)
-        """
-        context.coordinator.webView?.loadHTMLString(styledHTML, baseURL: nil)
-
-        // Restore scroll position after content loads
-        context.coordinator.webView?.evaluateJavaScript("document.readyState") { [context] result, _ in
-            if let readyState = result as? String, readyState == "complete" {
-                context.coordinator.restoreScrollPosition()
-            } else {
-                // Fallback: wait a bit and try again
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2 ) {
-                    context.coordinator.restoreScrollPosition()
-                }
-            }
-        }
-        // Determine if floating buttons should be visible at all (hidden when editor is full-screen)
-        let shouldShowButtons = !isEditorFullScreen
-        
-        // Listen (TTS) button: only show if buttons are allowed AND TTS is enabled
-        let shouldShowListenButton = shouldShowButtons && ttsEnabled
-        context.coordinator.listenButton?.isHidden = !shouldShowListenButton
-        context.coordinator.listenButton?.alpha = shouldShowListenButton ? 1.0 : 0.0
-        
-        // Ask AI button visibility is controlled exclusively by text selection
-        // (no change here – handled inside Coordinator via selection monitoring)
-        
-        // Ensure selection monitoring is active
-        context.coordinator.startMonitoringSelection()
-        
-        // Animate any layout changes (e.g., button appearing/disappearing)
-        UIView.animate(withDuration: 0.35) {
+        context.coordinator.debouncedUpdate(markdown: markdown, isEditorFullScreen: isEditorFullScreen) {
             uiView.layoutIfNeeded()
         }
     }
@@ -188,7 +120,6 @@ struct WebMarkdownView: UIViewRepresentable {
     class Coordinator: NSObject {
         var parent: WebMarkdownView
         var webView: WKWebView?
-        var listenButton: UIButton?
         var askButton: UIButton?
         
         // MARK: - Scroll Restoration
@@ -200,13 +131,58 @@ struct WebMarkdownView: UIViewRepresentable {
         
         private var selectionTimer: Timer?
         
+        // MARK: - Debounced Preview Update
+        private var previewUpdateTimer: Timer?
+        private let previewDebounceInterval: TimeInterval = 0.3
+        
         init(_ parent: WebMarkdownView) {
             self.parent = parent
             super.init()
         }
         
-        @objc func listenTapped() {
-            parent.onListenTapped()
+        func debouncedUpdate(markdown: String, isEditorFullScreen: Bool, completion: @escaping () -> Void) {
+            previewUpdateTimer?.invalidate()
+            previewUpdateTimer = Timer.scheduledTimer(withTimeInterval: previewDebounceInterval, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                self.performPreviewUpdate(markdown: markdown, isEditorFullScreen: isEditorFullScreen)
+                completion()
+            }
+        }
+
+        private func performPreviewUpdate(markdown: String, isEditorFullScreen: Bool) {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let html = WebMarkdownView.exportHTML(markdown: markdown)
+                let styledHTML = """
+                <style>
+                    @media (prefers-color-scheme: dark) {
+                        body, p, div, span, h1, h2, h3, h4, h5, h6 { color: white !important; }
+                        ::selection { background: #FFD60A; }
+                    }
+                    ::selection { background: #FFEB3B; color: black; }
+                    body { -webkit-user-select: text; user-select: text; }
+                </style>
+                \(html)
+                """
+                DispatchQueue.main.async {
+                    self?.webView?.loadHTMLString(styledHTML, baseURL: nil)
+
+                    self?.webView?.evaluateJavaScript("document.readyState") { [weak self] result, _ in
+                        if let readyState = result as? String, readyState == "complete" {
+                            self?.restoreScrollPosition()
+                        } else {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                self?.restoreScrollPosition()
+                            }
+                        }
+                    }
+
+                    self?.startMonitoringSelection()
+
+                    UIView.animate(withDuration: 0.35) {
+                        self?.askButton?.alpha = isEditorFullScreen ? 0 : 1
+                    }
+                }
+            }
         }
         
         @objc func askAITapped() {
@@ -346,6 +322,7 @@ struct WebMarkdownView: UIViewRepresentable {
         deinit {
             stopMonitoringSelection()
             stopMonitoringScrollPosition()
+            previewUpdateTimer?.invalidate()
         }
     }
 
@@ -357,22 +334,15 @@ struct WebMarkdownViewWithTTS: View {
     let filePath: String?
 
     @Binding var isEditorFullScreen: Bool
-    @State private var showingTTSSheet = false
-    @EnvironmentObject var ttsModel: TestAppModel
 
     var body: some View {
         WebMarkdownView(
             markdown: markdown,
-            onListenTapped: { showingTTSSheet = true },
             onAskAIAboutSelection: onAskAIAboutSelection,
             isEditorFullScreen: $isEditorFullScreen,
             ttsEnabled: .constant(MultiSettingsViewModel.shared.ttsEnabled)
         )
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.3), value: isEditorFullScreen)
-        .sheet(isPresented: $showingTTSSheet) {
-            TTSSheet(markdown: markdown, filePath: filePath)
-                .environmentObject(ttsModel)
-        }
     }
 }

@@ -249,6 +249,10 @@ final class MultiSettingsViewModel: ObservableObject {
     @AppStorage("editor_spell_check") var spellCheckEnabled: Bool = true
     @AppStorage("editor_default_view") var defaultEditorView: EditorViewType = .preview
     
+    // Cloud Sync Settings
+    @AppStorage("sync_conflict_notifications") var syncConflictNotifications: Bool = true
+    @AppStorage("sync_offline_queue") var syncOfflineQueue: Bool = true
+    
     // Theme Settings
     @AppStorage("app_theme") var appTheme: AppTheme = .system
     @AppStorage("editor_theme") var editorTheme: EditorTheme = .light

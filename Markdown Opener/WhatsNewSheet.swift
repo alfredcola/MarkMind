@@ -219,8 +219,8 @@ struct WhatsNewSheet: View {
             version: "1.0.15",
             date: "2025年11月",
             dateEN: "November 2025",
-            title: "MarkMind 又升級啦！",
-            titleEN: "MarkMind just got better!",
+            title: "MarkMind 全面升級為一站式自學App！",
+            titleEN: "MarkMind – Your One Stop Self-Study App!",
             isLatest: false,
             features: [
                 Feature(emoji: "⭐", en: "Pin Your Favorite Files", zh: "收藏最愛檔案",
@@ -230,7 +230,7 @@ struct WhatsNewSheet: View {
                         enDesc: "All progress & spaced repetition status are fully saved.",
                         zhDesc: "所有學習進度與間隔重複狀態現已完整儲存"),
                 Feature(emoji: "📄", en: "Plain Text Support", zh: "支援純文字檔案",
-                        enDesc: "Open and edit .txt files directly in MarkMind.",
+                        enDesc: "Open and edit .txt files directly in MarkMind – your all-in-one self-study companion.",
                         zhDesc: "現可直接開啟並編輯 .txt 檔案"),
                 Feature(emoji: "🤖", en: "Generate Explanations One-by-One", zh: "逐張生成 AI 解釋",
                         enDesc: "Tap the wand — get AI explanations card-by-card instantly!",
@@ -334,7 +334,7 @@ struct HeaderView: View {
                 .foregroundStyle(.indigo.gradient)
                 .symbolEffect(.pulse, options: .repeating)
             
-            Text(isZH ? "MarkMind 又升級啦！" : "MarkMind just got better!")
+            Text(isZH ? "MarkMind 全面升級！" : "MarkMind – One Stop Self-Study App!")
                 .font(.title).bold()
                 .multilineTextAlignment(.center)
             

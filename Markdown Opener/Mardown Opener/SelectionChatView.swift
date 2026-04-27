@@ -22,14 +22,17 @@ struct SelectionChatView: View {
     
     @EnvironmentObject var convo: ConversationStore
     @Environment(\.dismiss) private var dismiss
-    
+
     static let sharedSelectionChatURL = URL(string: "temp://selection-chat/shared")!
     private let selectionChatURL = SelectionChatView.sharedSelectionChatURL
-    
+
     @State private var input: String = ""
     @State private var sending: Bool = false
     @State private var errorMessage: String?
     @State private var hasSentInitial = false
+
+    @ObservedObject private var retryManager = ChatRetryManager.shared
+    @ObservedObject private var errorManager = ChatErrorManager.shared
     
     @State private var showingSaveAlert = false
     @State private var saveTitle: String = ""
@@ -81,9 +84,15 @@ struct SelectionChatView: View {
                                     .padding()
                             } else {
                                 ForEach(messages, id: \.id) { message in
-                                    MessageBubble(message: message)
+                                    MessageBubble(message: message) {
+                                        Task { await retrySelectionMessage(message) }
+                                    }
                                         .id(message.id)
                                         .padding(.horizontal, 4)
+                                }
+
+                                if sending {
+                                    TypingIndicatorView()
                                 }
                             }
                         }
@@ -310,7 +319,75 @@ struct SelectionChatView: View {
             convo.objectWillChange.send()
         }
     }
-    
+
+    @MainActor
+    private func retrySelectionMessage(_ message: ChatMessage) async {
+        guard message.role == .user else { return }
+
+        errorManager.clearError(for: message.id)
+        errorManager.incrementRetryCount(for: message.id)
+
+        let messages = convo.messages(for: selectionChatURL)
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+
+        let userMessage = messages[index]
+        let userContent = userMessage.content
+
+        do {
+            let apiKey = ProcessInfo.processInfo.environment["MINIMAX_API_KEY"]
+                ?? (Bundle.main.object(forInfoDictionaryKey: "MiniMaxAPIKey") as? String)
+                ?? ""
+            guard !apiKey.isEmpty else {
+                errorMessage = "Missing MiniMax API key."
+                return
+            }
+
+            let actualText = restoredDocumentChat != nil ? "[Full document content not reloaded]" : trimmedSelectedText
+            let contextText = restoredDocumentChat != nil ? "[Full document]" : docText
+            let isFullDoc = restoredDocumentChat != nil
+
+            let systemPrompt = PromptBuilder.buildSelectionChatPrompt(
+                selectedText: actualText,
+                fullDocText: contextText,
+                isFullDoc: isFullDoc
+            )
+
+            let apiMessages: [ChatMessage] = [
+                .init(role: .system, content: systemPrompt),
+                .init(role: .user, content: userContent)
+            ]
+
+            let reply = try await MiniMaxService.chatWithRetry(
+                apiKey: apiKey,
+                messages: apiMessages,
+                temperature: 0.1,
+                maxTokens: Constants.API.maxTokensPDF
+            )
+
+            var finalReply: String
+            if aiReplyLanguage == .traditionalChinese {
+                let hasChinese = reply.containsChinese()
+                let chineseRatio = Double(reply.unicodeScalars.filter { $0.value >= 0x4E00 && $0.value <= 0x9FFF }.count) / Double(max(reply.count, 1))
+
+                if !hasChinese || chineseRatio < 0.3 {
+                    finalReply = "（以下以正體中文回覆）\n\(reply)"
+                } else {
+                    finalReply = reply
+                }
+            } else {
+                finalReply = reply
+            }
+
+            let assistantMsg = ChatMessage(role: .assistant, content: finalReply)
+            convo.append(assistantMsg, to: selectionChatURL)
+            convo.objectWillChange.send()
+
+        } catch {
+            errorManager.setError(for: message.id, error: error.localizedDescription)
+            convo.objectWillChange.send()
+        }
+    }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         if let last = messages.last {
             withAnimation {

@@ -17,6 +17,28 @@ enum Constants {
         static let miniMaxAPITimeout: TimeInterval = 60
         static let maxTokensStandard: Int = 8192
         static let maxTokensPDF: Int = 8000
+        static let maxRetries: Int = 3
+        static let retryBaseDelay: TimeInterval = 1.0
+        static let retryMaxDelay: TimeInterval = 30.0
+    }
+
+    enum ChatRetry {
+        static let maxQueueSize: Int = 100
+        static let maxRetriesPerMessage: Int = 3
+        static let queuePersistenceFileName = "pending_messages.json"
+    }
+
+    enum Pagination {
+        static let defaultPageSize: Int = 30
+        static let maxCachedMessages: Int = 100
+        static let maxMemoryMessages: Int = 300
+    }
+
+    enum Performance {
+        static let backgroundSaveDebounceInterval: TimeInterval = 0.5
+        static let maxConcurrentBackgroundTasks: Int = 3
+        static let memoryWarningThresholdMB: Int = 100
+        static let messageFilterDebounce: TimeInterval = 0.1
     }
 
     enum MLX {

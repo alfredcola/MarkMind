@@ -87,14 +87,14 @@ struct SelectableTextView: UIViewRepresentable {
 
 struct NativeMarkdownView2: View {
     let markdown: String
-    
+
     @EnvironmentObject var model: TestAppModel
     @ObservedObject private var settingsVM = MultiSettingsViewModel.shared
-    
+
     @State private var attributedContent: AttributedString = AttributedString("")
     @State private var chunks: [String] = []
     @State private var useBuiltInTTS: Bool = false
-    
+
     // Playback state
     @State private var currentChunkIndex: Int = 0
     @State private var isPlaying: Bool = false
@@ -104,11 +104,15 @@ struct NativeMarkdownView2: View {
     @State private var pausedChunkText: String = ""
     @State private var wasManuallySelected: Bool = false
     @Binding var ttsEnabled: Bool
-    
+
     // TTS
     @State private var chineseSynthesizer = AVSpeechSynthesizer()
     @State private var chineseDelegate: TTSUtils.ChineseTTSDelegate?
-    
+
+    // Debouncing
+    @State private var previewUpdateTimer: Timer?
+    @State private var lastProcessedMarkdown: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
@@ -120,24 +124,25 @@ struct NativeMarkdownView2: View {
                 .padding(8)
                 .background(Color(.systemBackground))
             }
-        
-            
+
+
             if !chunks.isEmpty && ttsEnabled {
                 playbackControls
             }
         }
-        .task(id: markdown) {
-            await processMarkdownContent(markdown)
-        }
-        .onChange(of: model.stringToFollowTheAudio) { _, newValue in
-            if ttsEnabled{
-                spokenSoFarInCurrentChunk = newValue.trimmingCharacters(in: .whitespaces)
+        .onChange(of: markdown) { _, newValue in
+            guard newValue != lastProcessedMarkdown else { return }
+            previewUpdateTimer?.invalidate()
+            let currentMarkdown = newValue
+            previewUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                Task { @MainActor in
+                    self.lastProcessedMarkdown = currentMarkdown
+                    await processMarkdownContent(currentMarkdown)
+                }
             }
         }
-        .onChange(of: settingsVM.selectedVoice) { _, _ in
-            model.selectedVoice = settingsVM.selectedVoice.rawValue
-        }
         .onDisappear {
+            previewUpdateTimer?.invalidate()
             stopPlayback()
         }
     }
@@ -215,8 +220,7 @@ struct NativeMarkdownView2: View {
             let shouldUseBuiltIn = isChinese || !TestAppModel.isSupportedDevice()
             useBuiltInTTS = shouldUseBuiltIn
             
-            let clean = TTSUtils.cleanMarkdownForTTS(md)
-            let newChunks = await computeOptimalChunks(cleanText: clean, isChinese: isChinese)
+            let newChunks = await computeOptimalChunks(markdownText: md, isChinese: isChinese)
             
             if chunks != newChunks {
                 chunks = newChunks
@@ -226,9 +230,9 @@ struct NativeMarkdownView2: View {
         }
     }
     
-    private func computeOptimalChunks(cleanText: String, isChinese: Bool) async -> [String] {
+    private func computeOptimalChunks(markdownText: String, isChinese: Bool) async -> [String] {
         await Task.detached(priority: .utility) {
-            TTSUtils.computeTTSChunks(from: cleanText, isChinese: isChinese)
+            TTSUtils.computeTTSChunks(from: markdownText, isChinese: isChinese)
         }.value
     }
     

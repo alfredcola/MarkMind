@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to get user ID from request
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Global setting collection - readable by all authenticated users
+    match /setting/{document} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Users collection - each user can only read/write their own data
+    match /users/{userId} {
+      // User document itself (for user settings, etc.)
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+
+      // FileIDs subcollection - GCS file ID to path mapping for GCS-only architecture
+      match /fileIds/{fileId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+        allow list: if isOwner(userId);
+      }
+
+      // Metadata subcollection - for tags, favorites, etc.
+      match /metadata/{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+
+      // Coins subcollection - for coin balance and transactions
+      match /coins/{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+
+      // Subscription subcollection
+      match /subscription/{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+
+      // Transactions subcollection
+      match /transactions/{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+
+      // Coin transactions subcollection (for rewarded ads)
+      match /coin_transactions/{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+    }
+  }
+}

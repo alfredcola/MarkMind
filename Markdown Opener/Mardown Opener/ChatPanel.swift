@@ -12,6 +12,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import WebKit
+import Combine
 
 /// The language in which the AI should reply (and UI should be shown)
 enum AIReplyLanguage: String, Codable, CaseIterable, Identifiable {
@@ -37,10 +38,12 @@ enum AIReplyLanguage: String, Codable, CaseIterable, Identifiable {
 }
 
 // MARK: - Chat Panel
-struct ChatPanel: View {
+@MainActor struct ChatPanel: View {
     @EnvironmentObject var convoAbbb: ConversationStore
-    private let documentStore = DocumentStore.shared
+    private let documentStore = GCSDocumentStore.shared
     @ObservedObject private var rewardedAdManager = RewardedAdManager.shared
+    @ObservedObject private var retryManager = ChatRetryManager.shared
+    @ObservedObject private var errorManager = ChatErrorManager.shared
 
 
     let docURL: URL
@@ -59,6 +62,13 @@ struct ChatPanel: View {
     var seedPrompt: String = ""
     var autoSend: Bool = false
 
+    init(docURL: URL, docText: String, seedPrompt: String = "", autoSend: Bool = false) {
+        self.docURL = docURL
+        self.docText = docText
+        self.seedPrompt = seedPrompt
+        self.autoSend = autoSend
+    }
+
     @AppStorage("ai_reply_language") private var aiReplyLanguageRaw: String =
         AIReplyLanguage.english.rawValue
     private var aiReplyLanguage: AIReplyLanguage {
@@ -74,6 +84,15 @@ struct ChatPanel: View {
 
     @State private var showingSaveAlert = false
     @State private var saveTitle: String = ""
+    @State private var cachedFilteredMessages: [ChatMessage] = []
+    @State private var showSearchBar = false
+    @State private var searchQuery = ""
+    @State private var searchResults: [ChatMessage] = []
+    @State private var needsScrollToBottom = false
+    @State private var hasMoreMessages = false
+    @State private var isLoadingMore = false
+    @State private var currentPageOffset = 0
+    private let pageSize = 50
 
     private var shortcutItems: [ShortcutItem] {
         let summarizePrompt =
@@ -429,6 +448,24 @@ struct ChatPanel: View {
             if !isFullScreen {
                 headerBar
                 Divider()
+                if showSearchBar {
+                    searchBar
+                    Divider()
+                }
+
+                if errorManager.showGlobalError, let globalError = errorManager.globalError {
+                    ErrorBannerView(
+                        error: globalError,
+                        isRetryable: true,
+                        onRetry: {
+                            errorManager.dismissGlobalError()
+                        },
+                        onDismiss: {
+                            errorManager.dismissGlobalError()
+                        }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
 
             chatMessagesList
@@ -467,18 +504,45 @@ struct ChatPanel: View {
             HStack(spacing: 8) {
                 coinsBadge
 
+                Button {
+                    withAnimation {
+                        showSearchBar.toggle()
+                        if !showSearchBar {
+                            searchQuery = ""
+                            searchResults = []
+                        }
+                    }
+                } label: {
+                    Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(width: 36, height: 36)
+                        .background(showSearchBar ? Color.blue.opacity(0.2) : Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
                 if !convoAbbb.messages(for: docURL).isEmpty {
-                    Button {
-                        let defaultTitle = docURL.deletingPathExtension()
-                            .lastPathComponent
-                        let dateStr = Date().formatted(
-                            date: .omitted,
-                            time: .shortened
-                        )
-                        saveTitle = "\(defaultTitle) – \(dateStr)"
-                        showingSaveAlert = true
+                    Menu {
+                        Button {
+                            let defaultTitle = docURL.deletingPathExtension()
+                                .lastPathComponent
+                            let dateStr = Date().formatted(
+                                date: .omitted,
+                                time: .shortened
+                            )
+                            saveTitle = "\(defaultTitle) – \(dateStr)"
+                            showingSaveAlert = true
+                        } label: {
+                            Label("Save Chat", systemImage: "bookmark")
+                        }
+                        
+                        Button {
+                            exportEntireChat()
+                        } label: {
+                            Label("Export as Markdown", systemImage: "square.and.arrow.up")
+                        }
                     } label: {
-                        Image(systemName: "bookmark")
+                        Image(systemName: "ellipsis.circle")
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(.primary)
                             .frame(width: 36, height: 36)
@@ -491,6 +555,28 @@ struct ChatPanel: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(Color(.systemBackground))
+    }
+
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("Search messages...", text: $searchQuery)
+                .textFieldStyle(.plain)
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
     }
 
     private var coinsBadge: some View {
@@ -514,22 +600,53 @@ struct ChatPanel: View {
         )
     }
 
-    private var chatMessagesList: some View {
+    @MainActor private var chatMessagesList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    let msgs = convoAbbb.messages(for: docURL)
-                        .filter { msg in
-                            !(msg.role == .user && msg.isShortcut)
-                        }
-                    
+                    let msgs = cachedFilteredMessages
+
                     if msgs.isEmpty {
                         placeholderMessage
                     } else {
+                        if hasMoreMessages && !isLoadingMore {
+                            Button(action: {
+                                guard !isLoadingMore, hasMoreMessages else { return }
+                                isLoadingMore = true
+                                let page = convoAbbb.loadMessages(for: docURL, offset: currentPageOffset, limit: pageSize)
+                                let newMessages = page.messages.filter { msg in !(msg.role == .user && msg.isShortcut) }
+                                cachedFilteredMessages = newMessages + cachedFilteredMessages
+                                hasMoreMessages = page.hasMore
+                                currentPageOffset = page.nextOffset
+                                isLoadingMore = false
+                            }) {
+                                HStack {
+                                    Image(systemName: "chevron.up")
+                                    Text("Load earlier messages")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.purple)
+                                .padding(.vertical, 8)
+                            }
+                        }
+
+                        if isLoadingMore {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        }
+
                         ForEach(msgs) { msg in
-                            MessageBubble(message: msg)
+                            MessageBubble(message: msg) {
+                                Task { await retryMessage(msg) }
+                            }
                                 .contextMenu { messageContextMenu(msg) }
                                 .id(msg.id)
+                                .transition(.opacity)
+                        }
+
+                        if sending {
+                            TypingIndicatorView()
                                 .transition(.opacity)
                         }
                     }
@@ -537,9 +654,41 @@ struct ChatPanel: View {
                 .padding(.vertical)
             }
             .background(Color(.systemGroupedBackground))
-            .onAppear { scrollToBottom(proxy) }
-            .onChange(of: convoAbbb.messages(for: docURL)) { _, _ in
+            .onAppear {
+                let page = convoAbbb.loadMessages(for: docURL, offset: 0, limit: pageSize)
+                cachedFilteredMessages = page.messages.filter { msg in !(msg.role == .user && msg.isShortcut) }
+                hasMoreMessages = page.hasMore
+                currentPageOffset = page.nextOffset
                 scrollToBottom(proxy)
+            }
+            .onReceive(convoAbbb.objectWillChange) { _ in
+                let newMessages = convoAbbb.messages(for: docURL)
+                let newFiltered = newMessages.filter { msg in !(msg.role == .user && msg.isShortcut) }
+
+                if newFiltered.count != cachedFilteredMessages.count {
+                    if newFiltered.count > cachedFilteredMessages.count {
+                        cachedFilteredMessages = newFiltered
+                        needsScrollToBottom = true
+                    } else {
+                        cachedFilteredMessages = newFiltered
+                    }
+                }
+
+                if !searchQuery.isEmpty {
+                    searchResults = convoAbbb.searchMessages(in: docURL, query: searchQuery)
+                }
+
+                if needsScrollToBottom {
+                    scrollToBottom(proxy)
+                }
+            }
+
+            .onChange(of: searchQuery) { _, newQuery in
+                if newQuery.isEmpty {
+                    searchResults = []
+                } else {
+                    searchResults = convoAbbb.searchMessages(in: docURL, query: newQuery)
+                }
             }
             .onTapGesture(count: 2) {
                 withAnimation {
@@ -598,6 +747,23 @@ struct ChatPanel: View {
         .id(UUID())
     }
 
+    private func exportEntireChat() {
+        let messages = convoAbbb.messages(for: docURL)
+        var markdown = "# Chat Export\n\n"
+        markdown += "Document: \(docURL.lastPathComponent)\n"
+        markdown += "Exported: \(Date().formatted())\n\n---\n\n"
+        
+        for msg in messages {
+            let role = msg.role == .user ? "**User**" : "**Assistant**"
+            markdown += "\n\(role):\n\(msg.content)\n"
+        }
+        
+        let filename = "chat_export_\(Int(Date().timeIntervalSince1970)).md"
+        Task {
+            await saveMessageAsMD(markdown, filename: filename)
+        }
+    }
+    
     private func messageContextMenu(_ msg: ChatMessage) -> some View {
         Group {
             Button("Save as MD File") {
@@ -622,6 +788,16 @@ struct ChatPanel: View {
                 ShareSheet.present(items: [msg.content])
             }
             .keyboardShortcut("s")
+
+            if msg.branchId == nil {
+                Divider()
+
+                Button("Create Branch Here") {
+                    if let branchId = convoAbbb.createBranch(from: msg.id, in: docURL) {
+                        Log.info("Created branch: \(branchId)", category: .chat)
+                    }
+                }
+            }
         }
     }
 
@@ -773,7 +949,7 @@ struct ChatPanel: View {
             let mdContent = "# Chat Message\n\n\(content)"
 
             // Save using the unique name
-            let savedURL = try store.saveAs(
+            let savedURL = try await store.saveAsAsync(
                 content: mdContent,
                 suggestedName: uniqueURL.lastPathComponent
             )
@@ -957,11 +1133,7 @@ struct ChatPanel: View {
         )
         convoAbbb.append(userMessage, to: docURL)
 
-        var fullConversation = buildConversationForAPI()
-
-        if fullConversation.last?.role != .user {
-            fullConversation.append(userMessage)
-        }
+        let fullConversation = buildConversationForAPI()
 
         do {
             try await CoinProtection.withCoinProtected(actionDescription: "Shortcut / quick action") {
@@ -981,7 +1153,7 @@ struct ChatPanel: View {
 
                 let reply = try await MiniMaxService.chatWithAutoContinue(
                     apiKey: apiKey,
-                    messages: fullConversation,  // ← use full history
+                    messages: fullConversation,
                     temperature: 0.1,
                     maxTokens: Constants.API.maxTokensStandard
                 )
@@ -1026,21 +1198,18 @@ struct ChatPanel: View {
         sending = true
         defer { sending = false }
 
-        let userMessage = ChatMessage(role: .user, content: trimmedInput)
+        let userMessage = ChatMessage(role: .user, content: trimmedInput, status: .sending)
         convoAbbb.append(userMessage, to: docURL)
+        let userMessageId = userMessage.id
 
         var fullConversation = buildConversationForAPI()
 
-        if fullConversation.last?.role != .user {
-            fullConversation.append(userMessage)
-        }
-        
-        let languageReminder = aiReplyLanguage == .traditionalChinese 
+        let languageReminder = aiReplyLanguage == .traditionalChinese
             ? "\n\n⚠️ 請使用正體中文回覆 | Please respond in Traditional Chinese"
             : "\n\n⚠️ Please respond in English"
 
         var finalReply: String = ""
-        
+
         do {
             try await CoinProtection.withCoinProtected(actionDescription: "Normal chat message") {
                 var lastUserMessageIndex = fullConversation.count - 1
@@ -1068,6 +1237,8 @@ struct ChatPanel: View {
                     maxTokens: Constants.API.maxTokensStandard
                 )
 
+                convoAbbb.updateMessageStatus(for: userMessageId, in: docURL, status: .delivered)
+
                 switch aiReplyLanguage {
                 case .english:
                     finalReply = reply
@@ -1077,7 +1248,7 @@ struct ChatPanel: View {
                         options: .regularExpression
                     ) != nil
                     let chineseRatio = Double(reply.unicodeScalars.filter { $0.value >= 0x4E00 && $0.value <= 0x9FFF }.count) / Double(max(reply.count, 1))
-                    
+
                     if !hasChinese || chineseRatio < 0.3 {
                         finalReply = "（以下以正體中文回覆）\n" + reply
                     } else {
@@ -1085,11 +1256,12 @@ struct ChatPanel: View {
                     }
                 }
             }
-            
+
             let assistantMessage = ChatMessage(role: .assistant, content: finalReply)
             convoAbbb.append(assistantMessage, to: docURL)
             convoAbbb.saveToDisk(for: docURL)
         } catch {
+            convoAbbb.updateMessageStatus(for: userMessageId, in: docURL, status: .failed)
             errorMessage = error.localizedDescription
         }
 
@@ -1123,12 +1295,91 @@ struct ChatPanel: View {
         )
     }
 
+    @MainActor
+    private func retryMessage(_ message: ChatMessage) async {
+        guard message.role == .user else { return }
+
+        errorManager.clearError(for: message.id)
+        errorManager.incrementRetryCount(for: message.id)
+
+        let messages = convoAbbb.messages(for: docURL)
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+
+        let userMessage = messages[index]
+        var conversationMessages = buildConversationForAPI()
+
+        if conversationMessages.last?.role != .user {
+            conversationMessages.append(userMessage)
+        }
+
+        let languageReminder = aiReplyLanguage == .traditionalChinese
+            ? "\n\n⚠️ 請使用正體中文回覆 | Please respond in Traditional Chinese"
+            : "\n\n⚠️ Please respond in English"
+
+        var lastUserIndex = conversationMessages.count - 1
+        if lastUserIndex >= 0 && conversationMessages[lastUserIndex].role == .user {
+            conversationMessages[lastUserIndex].content += languageReminder
+        }
+
+        do {
+            try await CoinProtection.withCoinProtected(actionDescription: "Retry chat message") {
+                let apiKey =
+                    ProcessInfo.processInfo.environment["MINIMAX_API_KEY"]
+                    ?? (Bundle.main.object(forInfoDictionaryKey: "MiniMaxAPIKey") as? String)
+                    ?? ""
+
+                guard !apiKey.isEmpty else {
+                    throw NSError(domain: "APIError", code: -2, userInfo: [
+                        NSLocalizedDescriptionKey: Localization.locWithUserPreference(
+                            "Missing MiniMax API key.",
+                            "缺少 MiniMax API 金鑰。"
+                        )
+                    ])
+                }
+
+                let reply = try await MiniMaxService.chatWithRetry(
+                    apiKey: apiKey,
+                    messages: conversationMessages,
+                    temperature: 0.1,
+                    maxTokens: Constants.API.maxTokensStandard
+                )
+
+                let finalReply: String
+                switch aiReplyLanguage {
+                case .english:
+                    finalReply = reply
+                case .traditionalChinese:
+                    let hasChinese = reply.range(of: #"[\u4E00-\u9FFF]"#, options: .regularExpression) != nil
+                    let chineseRatio = Double(reply.unicodeScalars.filter { $0.value >= 0x4E00 && $0.value <= 0x9FFF }.count) / Double(max(reply.count, 1))
+
+                    if !hasChinese || chineseRatio < 0.3 {
+                        finalReply = "（以下以正體中文回覆）\n" + reply
+                    } else {
+                        finalReply = reply
+                    }
+                }
+
+                let assistantMessage = ChatMessage(role: .assistant, content: finalReply)
+                convoAbbb.append(assistantMessage, to: docURL)
+                convoAbbb.saveToDisk(for: docURL)
+            }
+        } catch {
+            errorManager.setError(for: message.id, error: error.localizedDescription)
+        }
+    }
+
 }
 // MARK: - Message Bubble
 struct MessageBubble: View {
     let message: ChatMessage
-    
+    var onRetry: (() -> Void)?
+
     private var isUser: Bool { message.role == .user }
+    @ObservedObject private var errorManager = ChatErrorManager.shared
+
+    private var hasError: Bool {
+        errorManager.error(for: message.id) != nil
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -1147,6 +1398,12 @@ struct MessageBubble: View {
                     Text(isUser ? "You" : "AI")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+
+                    if hasError {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.orange)
+                    }
                 }
 
                 NativeMarkdownView(
@@ -1155,20 +1412,102 @@ struct MessageBubble: View {
                     ttsEnabled: .constant(MultiSettingsViewModel.shared.ttsEnabled)
                 )
                 .padding(6)
-                .foregroundColor(.primary)
+                .foregroundColor(hasError ? .secondary : .primary)
+                .opacity(hasError ? 0.7 : 1.0)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(
-                            isUser ? Color.gray.opacity(0.15) : Color.clear,
-                            lineWidth: 1
+                            hasError ? Color.orange.opacity(0.4) : (isUser ? Color.gray.opacity(0.15) : Color.clear),
+                            lineWidth: hasError ? 1 : 1
                         )
                 )
+
+                if hasError, let error = errorManager.error(for: message.id) {
+                    HStack(spacing: 8) {
+                        Text(error.error)
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                            .lineLimit(1)
+
+                        if error.isRetryable, let onRetry = onRetry {
+                            Button(action: onRetry) {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 10))
+                                    Text("Retry")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(.orange)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.orange.opacity(0.15))
+                            .clipShape(Capsule())
+                        }
+
+                        Button(action: {
+                            errorManager.clearError(for: message.id)
+                        }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.top, 2)
+                } else if isUser {
+                    statusIndicator
+                }
             }
 
             if !isUser { Spacer(minLength: 50) }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        switch message.status {
+        case .sending:
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 12, height: 12)
+                Text("Sending")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+        case .sent:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Sent")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+        case .delivered:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.green)
+                Text("Delivered")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+        case .failed:
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+                Text("Failed")
+                    .font(.caption2)
+                    .foregroundColor(.red)
+            }
+        }
     }
 }

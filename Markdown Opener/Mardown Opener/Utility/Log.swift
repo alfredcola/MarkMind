@@ -17,6 +17,10 @@ enum Log {
         case general = "General"
         case widget = "Widget"
         case subscription = "Subscription"
+        case cloudSync = "CloudSync"
+        case chat = "Chat"
+        case performance = "Performance"
+        case persistence = "Persistence"
     }
 
     static func error(_ message: String, category: Category = .general, error: Error? = nil) {

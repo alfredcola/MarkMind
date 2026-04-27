@@ -38,9 +38,16 @@ struct EditorViewBody: View {
     @Binding var docxAttributed: NSAttributedString?
     let flashSession: FlashcardSession
     let mcSession: MCSession
-    let store: DocumentStore
+    let store: GCSDocumentStore
     let flashcardStore: FlashcardStore
     let mcStore: MCStore
+
+    @State private var isImporting = false
+    @State private var importProgress: Double = 0
+    @State private var importMessage = ""
+    @State private var importedFileCount = 0
+    @State private var totalFilesToImport = 0
+    @State private var showImportOverlay = false
     let convo: ConversationStore
     @Binding var selectedFiles: Set<URL>
     @Binding var selectedFilter: FileFilter
@@ -59,9 +66,14 @@ struct EditorViewBody: View {
     @State private var findText = ""
     @State private var replaceText = ""
     @State private var findResults: [Range<String.Index>] = []
-    @State private var currentFindIndex = 0
+    @State private var currentFindIndex: Int = 0
     @State private var lastSavedTime: Date?
     @State private var isAutoSaving = false
+    
+    @State private var cachedWordCount: Int = 0
+    @State private var cachedCharacterCount: Int = 0
+    @State private var cachedLineCount: Int = 0
+    @State private var cachedReadingTime: Int = 1
     
     @ObservedObject private var settingsVM = MultiSettingsViewModel.shared
     
@@ -107,21 +119,27 @@ struct EditorViewBody: View {
     let onDiscardAndExitCurrentFile: () -> Void
     
     private var wordCount: Int {
-        let words = text.split { $0.isWhitespace || $0.isNewline }
-        return words.count
+        cachedWordCount
     }
     
     private var characterCount: Int {
-        return text.count
+        cachedCharacterCount
     }
     
     private var readingTime: Int {
-        let wordsPerMinute = 200
-        return max(1, wordCount / wordsPerMinute)
+        cachedReadingTime
     }
     
     private var lineCount: Int {
-        return text.components(separatedBy: .newlines).count
+        cachedLineCount
+    }
+    
+    private func updateCachedStats() {
+        let words = text.split { $0.isWhitespace || $0.isNewline }
+        cachedWordCount = words.count
+        cachedCharacterCount = text.count
+        cachedLineCount = text.components(separatedBy: .newlines).count
+        cachedReadingTime = max(1, cachedWordCount / 200)
     }
     
     private func performFind() {
@@ -377,6 +395,125 @@ struct EditorViewBody: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingPicker) {
+            DocumentPickerView { urls in
+                guard !urls.isEmpty else {
+                    showingPicker = false
+                    return
+                }
+
+                isImporting = true
+                showImportOverlay = true
+                totalFilesToImport = urls.count
+                importedFileCount = 0
+                importMessage = "Preparing to upload..."
+
+                Task {
+                    var importedURLs: [URL] = []
+
+                    for (index, url) in urls.enumerated() {
+                        await MainActor.run {
+                            importedFileCount = index + 1
+                            importProgress = Double(index) / Double(urls.count)
+                            importMessage = "Uploading \(url.lastPathComponent) to cloud... (\(index + 1)/\(urls.count))"
+                        }
+
+                        var shouldStopAccess = false
+                        if url.startAccessingSecurityScopedResource() {
+                            shouldStopAccess = true
+                        }
+                        defer {
+                            if shouldStopAccess {
+                                url.stopAccessingSecurityScopedResource()
+                            }
+                        }
+
+                        do {
+                            let imported = try await store.importIntoLibraryAsync(from: url)
+                            importedURLs.append(imported)
+                        } catch {
+                            await MainActor.run {
+                                let filename = url.lastPathComponent
+                                if error.localizedDescription.contains("quota") || error.localizedDescription.contains("quota exceeded") {
+                                    self.errorMessage = "Storage full! Cannot import \(filename). Delete files or upgrade to Pro."
+                                } else {
+                                    self.errorMessage = "Failed to import \(filename): \(error.localizedDescription)"
+                                }
+                            }
+                        }
+                    }
+
+                    await MainActor.run {
+                        isImporting = false
+                        showImportOverlay = false
+                        importProgress = 1.0
+
+                        if !importedURLs.isEmpty {
+                            let count = importedURLs.count
+                            importMessage = count == 1 ? "Uploaded successfully!" : "\(count) files uploaded!"
+                            onRefreshFiles()
+                            if let firstURL = importedURLs.first {
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 500_000_000)
+                                    await onOpen(firstURL)
+                                }
+                            }
+                        } else {
+                            importMessage = "Upload failed"
+                        }
+                    }
+
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    await MainActor.run {
+                        showingPicker = false
+                    }
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .overlay {
+            if showImportOverlay {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 16) {
+                        Image(systemName: "icloud.and.arrow.up.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.white)
+
+                        Text(importMessage)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+
+                        ProgressView(value: importProgress)
+                            .progressViewStyle(LinearProgressViewStyle())
+                            .tint(.white)
+                            .frame(width: 200)
+
+                        if totalFilesToImport > 1 {
+                            Text("\(importedFileCount) of \(totalFilesToImport) files uploaded")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+
+                        Button("Cancel") {
+                            showImportOverlay = false
+                        }
+                        .foregroundColor(.white.opacity(0.8))
+                        .padding(.top, 8)
+                    }
+                    .padding(40)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(Color.black.opacity(0.7))
+                    )
+                }
+            }
+        }
         .preferredColorScheme(nil)
     }
     
@@ -454,6 +591,15 @@ struct EditorViewBody: View {
     }
 
     @ViewBuilder
+    private var ttsTab: some View {
+        TTSSheet(markdown: text, filePath: currentURL?.path)
+            .tabItem {
+                Label("TTS", systemImage: "speaker.wave.2")
+            }
+            .tag(Tab.tts)
+    }
+
+    @ViewBuilder
     private var navigationContent: some View {
         Group {
             if currentURL == nil && !isLoadingFile {
@@ -461,6 +607,7 @@ struct EditorViewBody: View {
             } else {
                 ZStack {
                     TabView(selection: $selectedTab) {
+                        ttsTab
                         chatTab
                         editorTabFullScreenAware
                         if !isPPtorPPTX {
@@ -727,7 +874,8 @@ struct EditorViewBody: View {
                                             restoredDocumentChat: nil
                                         )
                                 },
-                                filePath: currentURL?.path, isEditorFullScreen: $isEditorFullScreen
+                                filePath: currentURL?.path,
+                                isEditorFullScreen: $isEditorFullScreen
                             )
                         } else {
                             NativeMarkdownView(
@@ -783,6 +931,9 @@ struct EditorViewBody: View {
         }
         .sheet(isPresented: $showingFindReplace) {
             findReplaceSheet
+        }
+        .onChange(of: text) { _, _ in
+            updateCachedStats()
         }
     }
     
@@ -1249,9 +1400,9 @@ struct EditorViewBody: View {
 
                 List {
                     starredFilesSection
-                    
+
                     taggedFilesSection
-                    
+
                     ForEach(visibleGroups, id: \.self) { fileGroup in
                         if isExpanded(.fileGroup(fileGroup)) {
                             let groupFiles =
@@ -1278,6 +1429,10 @@ struct EditorViewBody: View {
                             }
                         }
                     }
+                }
+                .refreshable {
+                    try? await store.refreshCloudFiles()
+                    files = (try? store.listDocuments()) ?? []
                 }
                 .buttonStyle(.plain)
                 .animation(.easeInOut(duration: 0.3), value: currentURL)
@@ -1450,6 +1605,14 @@ struct EditorViewBody: View {
     }
 
     private func info(for url: URL) -> FileInfo? {
+        if let cloudInfo = store.getCloudFileInfo(for: url) {
+            return FileInfo(
+                url: url,
+                size: cloudInfo.size,
+                modified: cloudInfo.modified,
+                ext: cloudInfo.fileExtension
+            )
+        }
         do {
             let attrs = try FileManager.default.attributesOfItem(
                 atPath: url.path
@@ -1525,6 +1688,8 @@ struct EditorViewBody: View {
                                 .font(.caption2)
                                 .foregroundColor(.yellow)
                         }
+
+                        SyncStatusIcon(url: url)
                     }
                     
                     HStack(spacing: 4) {
@@ -1648,5 +1813,13 @@ struct EditorViewBody: View {
 
     private func share(url: URL) {
         ShareSheet.present(items: [url])
+    }
+}
+
+struct SyncStatusIcon: View {
+    let url: URL
+
+    var body: some View {
+        EmptyView()
     }
 }

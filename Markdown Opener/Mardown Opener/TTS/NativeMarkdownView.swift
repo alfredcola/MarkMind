@@ -308,16 +308,17 @@ struct NativeMarkdownView: View {
         <html>
         <head>
         <style>
-        body { font: -apple-system-body; }
+        body { font: -apple-system-body; overflow-wrap: break-word; word-wrap: break-word; }
         h1,h2,h3 { margin-top: 1.0em; font-weight: bold; }
         h1 { font-size: 1.5em; }
         h2 { font-size: 1.3em; }
         h3 { font-size: 1.1em; }
         code, pre { font-family: ui-monospace, Menlo, monospace; background: #f5f5f7; }
-        pre { padding: 12px; border-radius: 8px; overflow: auto; }
-        table { border-collapse: collapse; width: 100%; }
+        pre { padding: 12px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-wrap: normal; }
+        table { border-collapse: collapse; width: 100%; max-width: 100%; overflow-x: auto; display: block; }
         th, td { border: 1px solid #ddd; padding: 8px; }
         blockquote { border-left: 4px solid #ddd; padding-left: 12px; color: #555; }
+        img { max-width: 100%; height: auto; display: block; }
         </style>
         </head>
         <body>\(html)</body>

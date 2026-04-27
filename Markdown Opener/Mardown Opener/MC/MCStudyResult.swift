@@ -35,7 +35,10 @@ struct MCcardResult: Codable {
     let question: String
     let options: [String]
     let correctIndex: Int
-    let userIndex: Int?  // nil if not answered
+    let correctIndices: [Int]?
+    let questionType: MCQuestionType
+    let userIndex: Int?
+    let userIndices: [Int]?
     let isCorrect: Bool
     let explanation: String?
 }

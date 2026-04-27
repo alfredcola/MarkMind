@@ -71,6 +71,20 @@ struct TTSSettingsSheet: View {
                     }
                     .foregroundColor(.red)
                 }
+
+                Section("Cache") {
+                    HStack {
+                        Text("Preloaded Audio")
+                        Spacer()
+                        Text(TTSPersistentAudioCache.shared.formattedCachedSize)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button("Clear All Preloaded Audio") {
+                        TTSPersistentAudioCache.shared.clearAllCachedAudio()
+                    }
+                    .foregroundColor(.red)
+                }
             }
             .navigationTitle("TTS Settings")
             .navigationBarTitleDisplayMode(.inline)

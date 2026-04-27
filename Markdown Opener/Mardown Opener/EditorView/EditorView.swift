@@ -17,7 +17,7 @@ struct EditorView: View {
     @StateObject private var subscriptionManager = SubscriptionManager.shared
     @ObservedObject private var vm = MultiSettingsViewModel.shared
 
-    @EnvironmentObject var store: DocumentStore
+    @EnvironmentObject var store: GCSDocumentStore
     @EnvironmentObject var convo: ConversationStore
     @EnvironmentObject var router: OpenURLRouter
     @EnvironmentObject var flashcardStore: FlashcardStore
@@ -242,16 +242,13 @@ struct EditorView: View {
         currentURL = url
         isLoadingFile = true
         defer { isLoadingFile = false }
-        
-        // Ensure file ID is accessed/created
-        _ = FileIDManager.shared.getFileID(for: url)
 
         await MainActor.run {
             ConversationStore.shared.loadFromDisk(for: url)
         }
 
         do {
-            let data = try store.load(url)
+            let data = try await store.loadAsync(url)
             text = data.text
             originalText = data.text
             pdfDocument = data.pdf
@@ -262,7 +259,7 @@ struct EditorView: View {
             flashSession.index = 0
             flashSession.done = savedFlash.isEmpty
 
-            let savedMC = try mcStore.load(for: url)
+            let savedMC = try await mcStore.load(for: url)
             mcSession.cards = savedMC
             mcSession.index = 0
             mcSession.done = savedMC.isEmpty
@@ -282,7 +279,7 @@ struct EditorView: View {
     @MainActor
     private func newBlank() async {
         do {
-            let url = try store.saveAs(
+            let url = try await store.saveAsAsync(
                 content: "# Untitled\n\n",
                 suggestedName: "Untitled.md"
             )
@@ -297,7 +294,7 @@ struct EditorView: View {
     private func save() async {
         guard let url = currentURL, isEditableText else { return }
         do {
-            _ = try store.save(content: text, to: url)
+            _ = try await store.saveAsync(content: text, to: url)
             originalText = text
             refreshFiles()
         } catch {
@@ -308,7 +305,7 @@ struct EditorView: View {
     @MainActor
     private func delete(_ url: URL) async {
         do {
-            try store.delete(url)
+            try await store.deleteAsync(url)
             try? flashcardStore.delete(for: url)
             try? mcStore.delete(for: url)
 
@@ -351,7 +348,7 @@ struct EditorView: View {
         defer { if needsStop { url.stopAccessingSecurityScopedResource() } }
 
         do {
-            let imported = try store.importIntoLibrary(from: url)
+            let imported = try await store.importIntoLibraryAsync(from: url)
             refreshFiles()
             await open(imported)
         } catch {
@@ -372,7 +369,10 @@ struct EditorView: View {
     }
 
     private func refreshFiles() {
-        files = (try? store.listDocuments()) ?? []
+        Task {
+            try? await store.refreshCloudFiles()
+            files = (try? store.listDocuments()) ?? []
+        }
     }
 }
 

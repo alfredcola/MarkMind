@@ -10,6 +10,7 @@
 		BB0E24902F9D466D00BE0095 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = BB0E248F2F9D466D00BE0095 /* Markdown */; };
 		BB0E24932F9D4B7E00BE0095 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = BB0E24922F9D4B7E00BE0095 /* Markdown */; };
 		BB0E24952F9D4DD900BE0095 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = BB0E24942F9D4DD900BE0095 /* Markdown */; };
+		BB183AC82F9F3A6D00B21CAD /* Automerge in Frameworks */ = {isa = PBXBuildFile; productRef = BB183AC72F9F3A6D00B21CAD /* Automerge */; };
 		BB1B0B672EE55B2B00005683 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B662EE55B2B00005683 /* MLXUtilsLibrary */; };
 		BB1B0B6A2EE55B3500005683 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B692EE55B3500005683 /* MisakiSwift */; };
 		BB1B0B6D2EE55B4600005683 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = BB1B0B6C2EE55B4600005683 /* MLX */; };
@@ -22,6 +23,7 @@
 		BB4799B22EFFFBD7000E1899 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799B12EFFFBD7000E1899 /* GoogleSignInSwift */; };
 		BB4799B42EFFFC5C000E1899 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = BB4799B32EFFFC5C000E1899 /* FirebaseCore */; };
 		BB4799C12F003E76000E1899 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB4799C02F003E76000E1899 /* StoreKit.framework */; };
+		BB9928DA2F9DE4620071A9CD /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = BB9928D92F9DE4620071A9CD /* FirebaseStorage */; };
 		BBAA38052EC066C200ABE343 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = BBAA38042EC066C200ABE343 /* ZIPFoundation */; };
 		BBAA38212EC07F0E00ABE343 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = BBAA38202EC07F0E00ABE343 /* GoogleMobileAds */; };
 		BBC569182EF7BCAB00AB39DC /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBC569172EF7BCAB00AB39DC /* WidgetKit.framework */; };
@@ -123,12 +125,14 @@
 			files = (
 				BBAA38212EC07F0E00ABE343 /* GoogleMobileAds in Frameworks */,
 				BB1B0B672EE55B2B00005683 /* MLXUtilsLibrary in Frameworks */,
+				BB183AC82F9F3A6D00B21CAD /* Automerge in Frameworks */,
 				BB4799B42EFFFC5C000E1899 /* FirebaseCore in Frameworks */,
 				BB0E24932F9D4B7E00BE0095 /* Markdown in Frameworks */,
 				BB4799C12F003E76000E1899 /* StoreKit.framework in Frameworks */,
 				BB1B0B6A2EE55B3500005683 /* MisakiSwift in Frameworks */,
 				BB1B0B702EE55B5800005683 /* KokoroSwift in Frameworks */,
 				BB1B0B6D2EE55B4600005683 /* MLX in Frameworks */,
+				BB9928DA2F9DE4620071A9CD /* FirebaseStorage in Frameworks */,
 				BB4799B22EFFFBD7000E1899 /* GoogleSignInSwift in Frameworks */,
 				BB0E24902F9D466D00BE0095 /* Markdown in Frameworks */,
 				BB4799B02EFFFAA6000E1899 /* FirebaseFirestore in Frameworks */,
@@ -219,6 +223,8 @@
 				BB4799B32EFFFC5C000E1899 /* FirebaseCore */,
 				BB0E248F2F9D466D00BE0095 /* Markdown */,
 				BB0E24922F9D4B7E00BE0095 /* Markdown */,
+				BB9928D92F9DE4620071A9CD /* FirebaseStorage */,
+				BB183AC72F9F3A6D00B21CAD /* Automerge */,
 			);
 			productName = "Markdown Opener";
 			productReference = BBB26CE62EBF1C7F00B91D13 /* Markdown Opener.app */;
@@ -284,6 +290,7 @@
 				BB4799A92EFFF99B000E1899 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				BB0E24912F9D4B7E00BE0095 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				BB183AC62F9F3A6D00B21CAD /* XCRemoteSwiftPackageReference "automerge-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BBB26CE72EBF1C7F00B91D13 /* Products */;
@@ -647,6 +654,14 @@
 				minimumVersion = 0.7.3;
 			};
 		};
+		BB183AC62F9F3A6D00B21CAD /* XCRemoteSwiftPackageReference "automerge-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/automerge/automerge-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.7.2;
+			};
+		};
 		BB1B0B652EE55B2B00005683 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mlalma/MLXUtilsLibrary.git";
@@ -728,6 +743,11 @@
 			package = BB0E24912F9D4B7E00BE0095 /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
 		};
+		BB183AC72F9F3A6D00B21CAD /* Automerge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB183AC62F9F3A6D00B21CAD /* XCRemoteSwiftPackageReference "automerge-swift" */;
+			productName = Automerge;
+		};
 		BB1B0B662EE55B2B00005683 /* MLXUtilsLibrary */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = BB1B0B652EE55B2B00005683 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */;
@@ -772,6 +792,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCore;
+		};
+		BB9928D92F9DE4620071A9CD /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB4799AC2EFFFAA6000E1899 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 		BBAA38042EC066C200ABE343 /* ZIPFoundation */ = {
 			isa = XCSwiftPackageProductDependency;

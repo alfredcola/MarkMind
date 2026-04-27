@@ -11,53 +11,125 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Markdown
 
+enum MCQuestionType: String, Codable {
+    case singleSelect = "single"  // Traditional A/B/C/D
+    case multiSelect = "multi"    // Multiple correct answers
+    case trueFalse = "tf"        // True or False
+}
+
 struct MCcard: Identifiable, Hashable, Codable {
     let id: UUID
     var question: String
     var options: [String]
-    var correctIndex: Int
+    var correctIndex: Int  // For single select
+    var correctIndices: [Int]?  // For multi-select (all correct indices)
+    var questionType: MCQuestionType = .singleSelect
     var sourceAnchor: String?
     var explanation: String?
     var lastUserIndex: Int?
+    var lastUserIndices: [Int]?  // For multi-select tracking
     var lastFeedback: String?
 
-    // === NEW: Performance memory ===
+    // Performance memory
     var timesSeen: Int = 0
     var timesCorrect: Int = 0
-    var consecutiveCorrect: Int = 0  // for spaced repetition feel
+    var consecutiveCorrect: Int = 0
     var lastAttemptDate: Date? = nil
+    var partialCreditEnabled: Bool = false
+
+    // SM-2 Spaced Repetition Fields
+    var easeFactor: Double = 2.5
+    var interval: Int = 0
+    var repetitions: Int = 0
+    var nextReviewDate: Date = Date()
 
     init(
         id: UUID = UUID(),
         question: String,
         options: [String],
         correctIndex: Int,
+        correctIndices: [Int]? = nil,
+        questionType: MCQuestionType = .singleSelect,
         sourceAnchor: String? = nil,
         explanation: String? = nil,
         lastUserIndex: Int? = nil,
+        lastUserIndices: [Int]? = nil,
         lastFeedback: String? = nil,
         timesSeen: Int = 0,
         timesCorrect: Int = 0,
         consecutiveCorrect: Int = 0,
-        lastAttemptDate: Date? = nil
+        lastAttemptDate: Date? = nil,
+        partialCreditEnabled: Bool = false,
+        easeFactor: Double = 2.5,
+        interval: Int = 0,
+        repetitions: Int = 0,
+        nextReviewDate: Date = Date()
     ) {
         self.id = id
         self.question = question
         self.options = options
         self.correctIndex = correctIndex
+        self.correctIndices = correctIndices
+        self.questionType = questionType
         self.sourceAnchor = sourceAnchor
         self.explanation = explanation
         self.lastUserIndex = lastUserIndex
+        self.lastUserIndices = lastUserIndices
         self.lastFeedback = lastFeedback
         self.timesSeen = timesSeen
         self.timesCorrect = timesCorrect
         self.consecutiveCorrect = consecutiveCorrect
         self.lastAttemptDate = lastAttemptDate
+        self.partialCreditEnabled = partialCreditEnabled
+        self.easeFactor = easeFactor
+        self.interval = interval
+        self.repetitions = repetitions
+        self.nextReviewDate = nextReviewDate
+    }
+
+    var isDueForReview: Bool {
+        Date() >= nextReviewDate
+    }
+
+    mutating func updateWithSM2(quality: Int) {
+        timesSeen += 1
+
+        if quality >= 3 {
+            timesCorrect += 1
+            consecutiveCorrect += 1
+
+            if repetitions == 0 {
+                interval = 1
+            } else if repetitions == 1 {
+                interval = 6
+            } else {
+                interval = Int(Double(interval) * easeFactor)
+            }
+            repetitions += 1
+        } else {
+            consecutiveCorrect = 0
+            repetitions = 0
+            interval = 1
+        }
+
+        easeFactor = easeFactor + (0.1 - Double(5 - quality) * (0.08 + Double(5 - quality) * 0.02))
+        if easeFactor < 1.3 {
+            easeFactor = 1.3
+        }
+
+        nextReviewDate = Calendar.current.date(byAdding: .day, value: interval, to: Date()) ?? Date()
     }
 
     var correctAnswer: String {
         guard correctIndex >= 0 && correctIndex < options.count else { return "" }
         return options[correctIndex]
+    }
+    
+    var correctAnswers: [String] {
+        if let indices = correctIndices {
+            return indices.compactMap { idx in idx >= 0 && idx < options.count ? options[idx] : nil }
+        }
+        return [correctAnswer]
     }
     
     var accuracy: Double {
@@ -66,6 +138,36 @@ struct MCcard: Identifiable, Hashable, Codable {
     
     var isWeak: Bool { accuracy < 0.7 && timesSeen >= 2 }
     var isMastered: Bool { consecutiveCorrect >= 3 }
+    
+    // Calculate partial credit for multi-select
+    func calculatePartialCredit(userSelected: Set<Int>) -> Double {
+        guard let correct = Set(correctIndices ?? [correctIndex]) as Set<Int>? else { return 0 }
+        
+        let correctSelections = userSelected.intersection(correct)
+        let wrongSelections = userSelected.subtracting(correct)
+        
+        let numCorrect = correctSelections.count
+        let numWrong = wrongSelections.count
+        let totalCorrect = correct.count
+        
+        // Partial credit formula: (correct selections - wrong selections) / total correct
+        // Negative results become 0
+        let score = Double(numCorrect - numWrong) / Double(totalCorrect)
+        return max(0, min(1, score))
+    }
+    
+    // Check if answer is correct
+    func isCorrect(userIndex: Int) -> Bool {
+        return userIndex == correctIndex
+    }
+    
+    func isCorrect(userIndices: Set<Int>) -> Bool {
+        if questionType == .singleSelect {
+            return userIndices.contains(correctIndex) && userIndices.count == 1
+        }
+        guard let correct = Set(correctIndices ?? [correctIndex]) as Set<Int>? else { return false }
+        return userIndices == correct
+    }
 }
 
 // MARK: - Flashcard Model
@@ -79,10 +181,17 @@ struct Flashcard: Identifiable, Hashable, Codable {
     var lastUserIndex: Int?
     var lastFeedback: String?
 
-    // === NEW: Performance memory ===
+    // Performance memory
     var timesSeen: Int = 0
     var timesCorrect: Int = 0
-    var consecutiveCorrect: Int = 0  // for spaced repetition feel
+    var consecutiveCorrect: Int = 0
+
+    // SM-2 Spaced Repetition Fields
+    var easeFactor: Double = 2.5  // Initial ease factor
+    var interval: Int = 0  // Days until next review
+    var repetitions: Int = 0  // Successful review count
+    var nextReviewDate: Date = Date()
+    var isCustom: Bool = false  // True if manually created
 
     init(
         id: UUID = UUID(),
@@ -95,7 +204,12 @@ struct Flashcard: Identifiable, Hashable, Codable {
         lastFeedback: String? = nil,
         timesSeen: Int = 0,
         timesCorrect: Int = 0,
-        consecutiveCorrect: Int = 0
+        consecutiveCorrect: Int = 0,
+        easeFactor: Double = 2.5,
+        interval: Int = 0,
+        repetitions: Int = 0,
+        nextReviewDate: Date = Date(),
+        isCustom: Bool = false
     ) {
         self.id = id
         self.question = question
@@ -108,6 +222,11 @@ struct Flashcard: Identifiable, Hashable, Codable {
         self.timesSeen = timesSeen
         self.timesCorrect = timesCorrect
         self.consecutiveCorrect = consecutiveCorrect
+        self.easeFactor = easeFactor
+        self.interval = interval
+        self.repetitions = repetitions
+        self.nextReviewDate = nextReviewDate
+        self.isCustom = isCustom
     }
 
     var correctAnswer: String {
@@ -121,6 +240,58 @@ struct Flashcard: Identifiable, Hashable, Codable {
     
     var isWeak: Bool { accuracy < 0.7 && timesSeen >= 2 }
     var isMastered: Bool { consecutiveCorrect >= 3 }
+    
+    var isDueForReview: Bool {
+        Date() >= nextReviewDate
+    }
+    
+    // SM-2 Algorithm: Calculate next review based on quality (0-5)
+    // 0-2: Incorrect, reset repetitions
+    // 3-5: Correct, increase interval
+    mutating func updateWithSM2(quality: Int) {
+        timesSeen += 1
+        
+        if quality >= 3 {
+            timesCorrect += 1
+            consecutiveCorrect += 1
+            
+            if repetitions == 0 {
+                interval = 1
+            } else if repetitions == 1 {
+                interval = 6
+            } else {
+                interval = Int(Double(interval) * easeFactor)
+            }
+            repetitions += 1
+        } else {
+            consecutiveCorrect = 0
+            repetitions = 0
+            interval = 1
+        }
+        
+        // Update ease factor
+        easeFactor = easeFactor + (0.1 - Double(5 - quality) * (0.08 + Double(5 - quality) * 0.02))
+        if easeFactor < 1.3 {
+            easeFactor = 1.3
+        }
+        
+        nextReviewDate = Calendar.current.date(byAdding: .day, value: interval, to: Date()) ?? Date()
+    }
+    
+    // Export to Anki-compatible format (TSV)
+    func toAnkiLine() -> String {
+        let front = question.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: "<br>")
+        let back = correctAnswer.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: "<br>")
+        let tags = sourceAnchor.map { " #\($0)" } ?? ""
+        return "\(front)\t\(back)\(tags)"
+    }
+}
+
+// MARK: - Anki Export
+extension Array where Element == Flashcard {
+    func exportToAnki() -> String {
+        return self.map { $0.toAnkiLine() }.joined(separator: "\n")
+    }
 }
 
 
@@ -139,6 +310,35 @@ final class FlashcardSession: ObservableObject {
         index += 1
         if index >= cards.count {
             done = true
+        }
+    }
+    
+    // Get cards due for review, sorted by priority (most overdue first)
+    func dueCards() -> [Flashcard] {
+        let now = Date()
+        return cards
+            .filter { $0.isDueForReview }
+            .sorted { $0.nextReviewDate < $1.nextReviewDate }
+    }
+    
+    // Get new cards that haven't been seen yet
+    func newCards() -> [Flashcard] {
+        return cards.filter { $0.timesSeen == 0 }
+    }
+    
+    // Reorder cards by SRS priority
+    func reorderBySRS() {
+        let due = dueCards()
+        let notDue = cards.filter { !$0.isDueForReview }
+        cards = due + notDue
+        index = 0
+        done = cards.isEmpty
+    }
+    
+    // Update card after user feedback (quality: 0-5)
+    func updateCard(_ card: Flashcard, quality: Int) {
+        if let idx = cards.firstIndex(where: { $0.id == card.id }) {
+            cards[idx].updateWithSM2(quality: quality)
         }
     }
 }
@@ -162,13 +362,36 @@ final class MCSession: ObservableObject {
         return cards[index]
     }
 
-    enum Rating { case again, hard, good }
+    enum Rating: Int { case again = 1, hard = 3, good = 4, easy = 5 }
 
     func rate(_ r: Rating) {
         guard let c = current else { return }
-        let delta: Int = r == .again ? -1 : (r == .hard ? 0 : 1)
-        ratings[c.id, default: 0] += delta
-        advance()
+        updateCard(c, quality: r.rawValue)
+    }
+
+    func dueCards() -> [MCcard] {
+        let now = Date()
+        return cards
+            .filter { $0.isDueForReview }
+            .sorted { $0.nextReviewDate < $1.nextReviewDate }
+    }
+
+    func newCards() -> [MCcard] {
+        return cards.filter { $0.timesSeen == 0 }
+    }
+
+    func reorderBySRS() {
+        let due = dueCards()
+        let notDue = cards.filter { !$0.isDueForReview }
+        cards = due + notDue
+        index = 0
+        done = cards.isEmpty
+    }
+
+    func updateCard(_ card: MCcard, quality: Int) {
+        if let idx = cards.firstIndex(where: { $0.id == card.id }) {
+            cards[idx].updateWithSM2(quality: quality)
+        }
     }
 
     
@@ -186,9 +409,10 @@ final class MCSession: ObservableObject {
         totalMarks = 0
         totalAttempts = 0
         perCardMarks.removeAll()
-        
+
         for i in cards.indices {
             cards[i].lastUserIndex = nil
+            cards[i].lastUserIndices = nil
             cards[i].lastFeedback = nil
         }
     }
@@ -204,25 +428,48 @@ final class MCSession: ObservableObject {
 // MARK: - Chat Message
 struct ChatMessage: Identifiable, Codable, Equatable {
     enum Role: String, Codable { case system, user, assistant }
+
+    enum MessageStatus: String, Codable {
+        case sending
+        case sent
+        case delivered
+        case failed
+    }
+
     let id: UUID
     let role: Role
     var content: String
     let createdAt: Date
     var isPrefix: Bool = false
-    var isShortcut: Bool = false  // Add this line
+    var isShortcut: Bool = false
+    var status: MessageStatus = .sent
+    var parentId: UUID?
+    var branchId: UUID?
+    var branchLabel: String?
+    var isMerged: Bool = false
 
     init(
         role: Role,
         content: String,
         id: UUID = UUID(),
         createdAt: Date = Date(),
-        isShortcut: Bool = false  // Add this parameter
+        isShortcut: Bool = false,
+        status: MessageStatus = .sent,
+        parentId: UUID? = nil,
+        branchId: UUID? = nil,
+        branchLabel: String? = nil,
+        isMerged: Bool = false
     ) {
         self.role = role
         self.content = content
         self.id = id
         self.createdAt = createdAt
         self.isShortcut = isShortcut
+        self.status = status
+        self.parentId = parentId
+        self.branchId = branchId
+        self.branchLabel = branchLabel
+        self.isMerged = isMerged
     }
 }
 

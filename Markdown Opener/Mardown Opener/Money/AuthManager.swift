@@ -17,6 +17,8 @@ final class AuthManager: ObservableObject {
     @Published var user: User?
     @Published var displayName: String = "User"
     private var coinsListener: ListenerRegistration?
+    private var pendingCoinsUpdate: Int?
+    private var coinsDebounceTask: Task<Void, Never>?
 
     var currentUserId: String? {
         Auth.auth().currentUser?.uid
@@ -94,6 +96,70 @@ final class AuthManager: ObservableObject {
                 }
                 Log.info("Signed in with Google successfully", category: .general)
                 self.loadOrMergeCoins()
+            }
+        }
+    }
+
+    enum SignInResult {
+        case success
+        case failure(Error)
+    }
+
+    func signInWithGoogle(completion: @escaping (SignInResult) -> Void) {
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
+            Log.error("Missing Firebase clientID", category: .general)
+            completion(.failure(NSError(domain: "AuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Missing Firebase clientID"])))
+            return
+        }
+
+        let config = GIDConfiguration(clientID: clientID)
+        GIDSignIn.sharedInstance.configuration = config
+
+        guard
+            let windowScene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+            let rootVC = windowScene.windows
+                .first(where: { $0.isKeyWindow })?.rootViewController
+        else {
+            Log.error("Unable to find root view controller", category: .general)
+            completion(.failure(NSError(domain: "AuthManager", code: -2, userInfo: [NSLocalizedDescriptionKey: "Unable to find root view controller"])))
+            return
+        }
+
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) {
+            [weak self] result, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                Log.error("Google Sign-In error", category: .general, error: error)
+                completion(.failure(error))
+                return
+            }
+
+            guard let user = result?.user,
+                let idToken = user.idToken?.tokenString
+            else {
+                Log.error("Google Sign-In: missing token", category: .general)
+                completion(.failure(NSError(domain: "AuthManager", code: -3, userInfo: [NSLocalizedDescriptionKey: "Missing token"])))
+                return
+            }
+
+            let accessToken = user.accessToken.tokenString
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken,
+                accessToken: accessToken
+            )
+
+            Auth.auth().signIn(with: credential) { authResult, error in
+                if let error = error {
+                    Log.error("Firebase sign-in error", category: .general, error: error)
+                    completion(.failure(error))
+                    return
+                }
+                Log.info("Signed in with Google successfully", category: .general)
+                self.loadOrMergeCoins()
+                completion(.success)
             }
         }
     }
@@ -187,11 +253,16 @@ final class AuthManager: ObservableObject {
                     return
                 }
 
-                let currentLocal = RewardedAdManager.shared.coins
-
-                // WITH this:
-                if cloudCoins != currentLocal {
-                    RewardedAdManager.shared.setCoinsFromCloud(cloudCoins)
+                // Debounce the update to avoid frequent UI updates
+                self.pendingCoinsUpdate = cloudCoins
+                self.coinsDebounceTask?.cancel()
+                self.coinsDebounceTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 second debounce
+                    guard !Task.isCancelled, let pending = self.pendingCoinsUpdate else { return }
+                    let currentLocal = RewardedAdManager.shared.coins
+                    if pending != currentLocal {
+                        RewardedAdManager.shared.setCoinsFromCloud(pending)
+                    }
                 }
             }
     }

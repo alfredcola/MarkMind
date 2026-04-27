@@ -28,7 +28,7 @@ struct TutorialVideo: Identifiable {
 struct TutorialVideosView: View {
     let videos: [TutorialVideo] = [
         TutorialVideo(
-            title: "MarkMind | Step-by-Step: Import Documents into MarkMind App",
+            title: "MarkMind | One Stop Self-Study App – Import Documents",
             youtubeID: "qLxm8JV1v44"  // Correct ID from https://youtube.com/shorts/qLxm8JV1v44
         ),
         TutorialVideo(
@@ -36,11 +36,11 @@ struct TutorialVideosView: View {
             youtubeID: "QUPzgkBpu7w"  // From https://youtube.com/shorts/QUPzgkBpu7w
         ),
         TutorialVideo(
-            title: "MarkMind | How to Use Flashcards Effectively – Review & Study Tips",
+            title: "MarkMind | How to Use Flashcards Effectively – Self-Study Tips",
             youtubeID: "tFKIrFH8Ees"  // From https://youtube.com/shorts/tFKIrFH8Ees
         ),
         TutorialVideo(
-            title: "MarkMind | How to Create and Use Multiple Choice (MC) Quizzes",
+            title: "MarkMind | How to Create and Use MC Quizzes for Self-Study",
             youtubeID: "HZWnVMBjl4U"  // From https://youtube.com/shorts/HZWnVMBjl4U
         ),
         TutorialVideo(

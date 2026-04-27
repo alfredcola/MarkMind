@@ -12,13 +12,14 @@ import WidgetKit
 struct MultiSettingsView: View {
     @ObservedObject private var vm = MultiSettingsViewModel.shared
     @EnvironmentObject private var store: DocumentStore
+    @EnvironmentObject private var quotaManager: StorageQuotaManager
     @State private var titleTapCount: Int = 0
     @State private var showingWhatsNew = false
     @State private var showingChipOrderSheet = false
     // At the top of MultiSettingsView, add these observed objects:
     @ObservedObject private var rewardedAdManager = RewardedAdManager.shared
     @ObservedObject private var authManager = AuthManager.shared
-    
+
     @Binding var showingTagManager: Bool
 
 
@@ -132,34 +133,70 @@ struct MultiSettingsView: View {
                     Text("Manage your account and coins.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    
-                    Text("Documents will not be synced.")  // Corrected grammar for clarity
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .italic()
                 }
             }
             
-            if vm.manually_adsDisabled {
-                Section("Web Version") {
-                    Button {
-                        showWebAdmin = true
-                    } label: {
-                        HStack {
-                            Label("Open MarkMind Web", systemImage: "globe")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "arrow.up.forward.app")
-                                .font(.system(size: 16, weight: .medium))
+            Section("Cloud Sync & Storage") {
+                NavigationLink {
+                    CloudSyncSettingsView()
+                } label: {
+                    HStack {
+                        Label("Cloud Sync", systemImage: "icloud")
+                        Spacer()
+                        CloudSyncStatusBadge()
+                    }
+                }
+
+                Text("Sync your documents across all devices")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label("Cloud Storage", systemImage: "externaldrive.fill")
+                            .font(.headline)
+                        Spacer()
+                        if SubscriptionManager.shared.isSubscribed {
+                            Label("Pro", systemImage: "star.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.orange.opacity(0.15))
+                                .clipShape(Capsule())
+                        } else {
+                            Label("Free", systemImage: "person.fill")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.secondary.opacity(0.15))
+                                .clipShape(Capsule())
                         }
                     }
-                    .foregroundStyle(.primary)
-                    
-                    Text("Open the web dashboard in-app (markmind.web.app)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+
+                    ProgressView(value: quotaManager.usagePercentage)
+                        .tint(quotaManager.isOverQuota ? .red : .accentColor)
+
+                    HStack {
+                        Text(quotaManager.getFormattedUsage())
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(quotaManager.getFormattedRemaining())
+                            .font(.caption)
+                            .foregroundStyle(quotaManager.isOverQuota ? .red : .secondary)
+                    }
+
+                    if !SubscriptionManager.shared.isSubscribed {
+                        Text("Upgrade to Pro for 1 GB storage")
+                            .font(.caption)
+                            .foregroundStyle(Color.accentColor)
+                    }
                 }
+                .padding(.vertical, 4)
             }
 
             if adsRevealed {
@@ -196,35 +233,6 @@ struct MultiSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
-                }
-            }
-            
-            if vm.manually_adsDisabled {
-                Section("File ID Management (Debug)") {
-                    ForEach(Array(FileIDManager.shared.getAllFileIDs()), id: \.fileID) { item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.fileName)
-                                .font(.caption)
-                                .foregroundStyle(.primary)
-                            Text(item.fileID)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.vertical, 2)
-                    }
-                    
-                    Button("Refresh File IDs") {
-                        // Force refresh by accessing each file
-                        Task {
-                            await FileIDManager.shared.migrateExistingFilesAsync()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    
-                    Text("\(FileIDManager.shared.getAllFileIDs().count) files with IDs")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
             }
 
